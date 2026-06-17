@@ -1,0 +1,3 @@
+app_identifier("fr.meublin.IPTV")
+apple_dev_portal_id(ENV["APPLE_ID"]) # optional, only used for some actions
+team_id("4D3FPL7ALU")
