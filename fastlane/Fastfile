@@ -12,7 +12,9 @@ platform :ios do
     setup_ci if ENV["CI"]
 
     # 1. Carthage dependencies (VLCKit).
-    Dir.chdir("sources") do
+    #    __dir__ is the /fastlane folder, so the repo root is one level up.
+    repo_root = File.expand_path("..", __dir__)
+    Dir.chdir(File.join(repo_root, "sources")) do
       sh("carthage", "bootstrap", "--use-xcframeworks", "--platform", "iOS", "--cache-builds")
     end
 
