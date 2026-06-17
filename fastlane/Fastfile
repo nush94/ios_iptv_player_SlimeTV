@@ -3,32 +3,32 @@ default_platform(:ios)
 # Paths are relative to the repo root (this Fastfile lives in /fastlane).
 WORKSPACE = "sources/IPTV.xcworkspace"
 SCHEME    = "IPTV-PROD"
+APP_ID    = "fr.meublin.IPTV"
 
 platform :ios do
-  desc "Build and upload a new build to TestFlight"
+  desc "Build and upload a new build to TestFlight (API-key automatic signing)"
   lane :beta do
-    # On CI, create a fresh temporary keychain so signing assets imported by
-    # the workflow are available to xcodebuild.
+    # Fresh temporary keychain on CI.
     setup_ci if ENV["CI"]
 
-    # 1. Carthage dependencies (VLCKit). --use-xcframeworks matches the project.
+    # 1. Carthage dependencies (VLCKit).
     Dir.chdir("sources") do
       sh("carthage", "bootstrap", "--use-xcframeworks", "--platform", "iOS", "--cache-builds")
     end
 
-    # 2. Authenticate to App Store Connect with an API key (.p8).
+    # 2. App Store Connect API key (.p8) — used for BOTH signing and upload.
     api_key = app_store_connect_api_key(
       key_id: ENV["ASC_KEY_ID"],
       issuer_id: ENV["ASC_ISSUER_ID"],
-      key_content: ENV["ASC_KEY_P8"], # base64 or raw .p8 contents
+      key_content: ENV["ASC_KEY_P8"], # base64-encoded .p8 contents
       is_key_content_base64: true,
       in_house: false
     )
 
-    # 3. Bump the build number to the next TestFlight build.
+    # 3. Bump build number above the latest on TestFlight.
     latest = latest_testflight_build_number(
       api_key: api_key,
-      app_identifier: "fr.meublin.IPTV",
+      app_identifier: APP_ID,
       initial_build_number: 0
     )
     increment_build_number(
@@ -36,24 +36,24 @@ platform :ios do
       build_number: (latest + 1).to_s
     )
 
-    # 4. Build the archive (manual signing using the profile installed by CI).
+    # 4. Build. Automatic signing: xcodebuild creates/downloads the
+    #    distribution cert + provisioning profile itself using the API key,
+    #    so no .p12 or .mobileprovision secrets are needed.
     build_app(
       workspace: WORKSPACE,
       scheme: SCHEME,
       configuration: "Release",
       export_method: "app-store",
-      export_options: {
-        provisioningProfiles: {
-          "fr.meublin.IPTV" => ENV["PROVISIONING_PROFILE_NAME"]
-        }
-      },
-      xcargs: "-allowProvisioningUpdates"
+      xcargs: "-allowProvisioningUpdates " \
+              "-authenticationKeyPath #{File.expand_path(ENV['ASC_KEY_PATH'])} " \
+              "-authenticationKeyID #{ENV['ASC_KEY_ID']} " \
+              "-authenticationKeyIssuerID #{ENV['ASC_ISSUER_ID']}"
     )
 
-    # 5. Upload to TestFlight (no manual review needed for internal testers).
+    # 5. Upload to TestFlight.
     upload_to_testflight(
       api_key: api_key,
-      app_identifier: "fr.meublin.IPTV",
+      app_identifier: APP_ID,
       skip_waiting_for_build_processing: true,
       distribute_external: false
     )
