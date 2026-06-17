@@ -50,7 +50,7 @@ struct PlaylistDetailView: View {
                         ForEach(vm.channels) { channel in
                             ChannelRow(channel: channel)
                                 .onTapGesture { playingChannel = channel }
-                                .swipeActions(edge: .trailing) {
+                                .contextMenu {
                                     Button(role: .destructive) {
                                         Task { await vm.delete(channel, token: auth.accessToken ?? "") }
                                     } label: {

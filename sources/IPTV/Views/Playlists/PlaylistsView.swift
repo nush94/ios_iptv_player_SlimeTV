@@ -49,7 +49,7 @@ struct PlaylistsView: View {
                                     PlaylistCard(playlist: playlist)
                                 }
                                 .buttonStyle(.plain)
-                                .swipeActions(edge: .trailing) {
+                                .contextMenu {
                                     Button(role: .destructive) {
                                         Task { await vm.delete(playlist, token: auth.accessToken ?? "") }
                                     } label: {
@@ -66,6 +66,20 @@ struct PlaylistsView: View {
             .navigationBarTitleDisplayMode(.large)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Menu {
+                        if let email = auth.userEmail {
+                            Text(email)
+                        }
+                        Button(role: .destructive) {
+                            Task { await auth.signOut() }
+                        } label: {
+                            Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                        }
+                    } label: {
+                        Image(systemName: "person.circle").foregroundStyle(.white)
+                    }
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: { showCreate = true }) {
                         Image(systemName: "plus").foregroundStyle(.white)
