@@ -10,7 +10,6 @@ import UIKit
 import TVVLCKit
 #endif
 #if os(iOS)
-import GoogleCast
 import MobileVLCKit
 #endif
 
@@ -38,14 +37,6 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
   private let videoContainerView = UIView(frame: .zero) // Conteneur pour la vidéo
   private let controlsContainerView = UIView() // Conteneur pour la vidéo
   private let backGround = UIView()
-#if os(iOS)
-  private let castButton = GCKUICastButton()
-  private var sessionManager: GCKSessionManager {
-    GCKCastContext.sharedInstance().sessionManager
-  }
-
-  private var mediaInformation: GCKMediaInformation?
-#endif
 
   private enum Constants {
     static let fontSize: CGFloat = 14
@@ -71,9 +62,6 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
       self.setupActions()
       self.showControls()
       self.setupRemoteInteraction()
-#if os(iOS)
-      self.sessionManager.add(self)
-#endif
     }
     playerStateChangedNotification = NotificationCenter.default.addObserver(
       forName: Notification.Name(rawValue: VLCMediaPlayerStateChanged),
@@ -101,8 +89,6 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
       self?.mediaPlayer.play()
       self?.mediaPlayer.perform(Selector(("setTextRendererFontSize:")), with: Constants.fontSize)
     }
-
-    // setupMediaCast(mediaURL: mediaURL, id: id, kind: kind)
   }
 
   func mediaPlayerStateChanged(_: Notification) {
@@ -219,43 +205,6 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
     controlsContainerView.isUserInteractionEnabled = true
   }
 
-#if os(iOS)
-  private func setupMediaCast(mediaURL: URL, id: Int, kind _: KindMedia) {
-    GCKCastContext.sharedInstance().presentDefaultExpandedMediaControls()
-
-    var metadata = GCKMediaMetadata()
-    metadata.setString("Big Buck Bunny (2008)", forKey: kGCKMetadataKeyTitle)
-    metadata.setString(
-      "Big Buck Bunny tells the story of a giant rabbit with a heart bigger than " +
-        "himself. When one sunny day three rodents rudely harass him, something " +
-        "snaps... and the rabbit ain't no bunny anymore! In the typical cartoon " +
-        "tradition he prepares the nasty rodents a comical revenge.",
-      forKey: kGCKMetadataKeySubtitle
-    )
-    metadata.addImage(GCKImage(
-      url: URL(string: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg")!,
-      width: 480,
-      height: 360
-    ))
-
-    /* Loading media to cast by creating a media request */
-    let mediaInfoBuilder = GCKMediaInformationBuilder(contentURL: mediaURL)
-    mediaInfoBuilder.contentID = String(id)
-    mediaInfoBuilder.streamType = GCKMediaStreamType.none
-    // mediaInfoBuilder.contentType = "video/mp4"
-    mediaInfoBuilder.metadata = metadata
-    mediaInformation = mediaInfoBuilder.build()
-
-    /* Configuring the media request */
-    let mediaLoadRequestDataBuilder = GCKMediaLoadRequestDataBuilder()
-    mediaLoadRequestDataBuilder.mediaInformation = mediaInformation
-
-    if let request = sessionManager.currentSession?.remoteMediaClient?.loadMedia(with: mediaLoadRequestDataBuilder.build()) {
-      request.delegate = self
-    }
-  }
-#endif
-
   // MARK: - UI Setup
 
   private func setupUI() {
@@ -274,10 +223,6 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
     rewindButton.alpha = 1
     rewindButton.tintColor = .white
     rewindButton.setTitle("- 30s", for: .normal)
-#if os(iOS)
-    castButton.frame = CGRectMake(0, 0, 24, 24)
-    castButton.tintColor = UIColor.gray
-#endif
     progressLabel.textAlignment = .center
     progressLabel.text = String(format: "%@ / %@", currentTimeString, videoLengthString)
     progressLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 18, weight: .medium)
@@ -293,12 +238,7 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
 
     let spacer = UIView()
 
-#if os(iOS)
-    let stopStack = UIStackView(arrangedSubviews: [closeButton, spacer, castButton, audioTrackButton, subtitlesButton, progressLabel])
-#endif
-#if os(tvOS)
     let stopStack = UIStackView(arrangedSubviews: [closeButton, spacer, audioTrackButton, subtitlesButton, progressLabel])
-#endif
 
     stopStack.axis = .horizontal
     stopStack.spacing = 30
@@ -484,53 +424,3 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
     }
   }
 }
-
-#if os(iOS)
-extension VPlayerController: GCKSessionManagerListener, GCKRemoteMediaClientListener, GCKRequestDelegate {
-  // MARK: - GCKSessionManagerListener
-
-  func sessionManager(_: GCKSessionManager, didStart session: GCKSession) {
-    print("MediaViewController: sessionManager didStartSession \(session)")
-    sessionManager.currentSession?.remoteMediaClient?.add(self)
-  }
-
-  func sessionManager(_: GCKSessionManager, didResumeSession session: GCKSession) {
-    print("MediaViewController: sessionManager didResumeSession \(session)")
-    sessionManager.currentSession?.remoteMediaClient?.add(self)
-  }
-
-  func sessionManager(_: GCKSessionManager, didEnd _: GCKSession, withError error: Error?) {
-    print("session ended with error: \(String(describing: error))")
-    let message = "The Casting session has ended.\n\(String(describing: error))"
-    sessionManager.currentSession?.remoteMediaClient?.remove(self)
-  }
-
-  func sessionManager(_: GCKSessionManager, didFailToStartSessionWithError _: Error?) {
-    sessionManager.currentSession?.remoteMediaClient?.remove(self)
-  }
-
-  func sessionManager(
-    _: GCKSessionManager,
-    didFailToResumeSession _: GCKSession,
-    withError _: Error?
-  ) {
-    sessionManager.currentSession?.remoteMediaClient?.remove(self)
-  }
-
-  func remoteMediaClient(_: GCKRemoteMediaClient, didUpdate mediaStatus: GCKMediaStatus?) {
-    if let mediaStatus {
-      mediaInformation = mediaStatus.mediaInformation
-    }
-  }
-
-  // MARK: - GCKRequestDelegate
-
-  func requestDidComplete(_ request: GCKRequest) {
-    print("request \(Int(request.requestID)) completed")
-  }
-
-  func request(_ request: GCKRequest, didFailWithError error: GCKError) {
-    print("request \(Int(request.requestID)) failed with error \(error)")
-  }
-}
-#endif

@@ -20,20 +20,6 @@ jobs:
       - name: Install Carthage
         run: brew install carthage
 
-      # GoogleCast.xcframework is gitignored and Google has no stable download
-      # URL. Provide a direct zip URL via the GOOGLECAST_SDK_URL secret, OR
-      # commit the framework to the repo and delete this step.
-      - name: Fetch GoogleCast SDK
-        if: ${{ secrets.GOOGLECAST_SDK_URL != '' }}
-        env:
-          GOOGLECAST_SDK_URL: ${{ secrets.GOOGLECAST_SDK_URL }}
-        run: |
-          curl -L "$GOOGLECAST_SDK_URL" -o googlecast.zip
-          unzip -q googlecast.zip -d googlecast_sdk
-          FW=$(find googlecast_sdk -name "GoogleCast.xcframework" -type d | head -1)
-          rm -rf sources/GoogleCast.xcframework
-          cp -R "$FW" sources/GoogleCast.xcframework
-
       - name: Write App Store Connect API key file
         env:
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}

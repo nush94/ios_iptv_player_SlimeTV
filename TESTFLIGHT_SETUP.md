@@ -24,23 +24,16 @@ Settings → Secrets and variables → Actions → **New repository secret**:
 | `ASC_KEY_ID` | App Store Connect API key ID | App Store Connect → Users and Access → **Integrations** tab → App Store Connect API → **+** to create a key. Give it the **App Manager** role. The Key ID is shown in the list. |
 | `ASC_ISSUER_ID` | Issuer ID | Shown at the top of that same Integrations page. |
 | `ASC_KEY_P8` | The `.p8` key file, base64-encoded | After creating the key, click **Download API Key** (you can only download it once). Then on any machine: `base64 -i AuthKey_XXXX.p8` and paste the output. |
-| `GOOGLECAST_SDK_URL` *(optional)* | Direct download URL to the GoogleCast iOS SDK zip | The `GoogleCast.xcframework` is gitignored. Either set this URL, **or** commit the framework to the repo and delete the "Fetch GoogleCast SDK" step in the workflow. See "GoogleCast" below. |
 
 > Direct link to create the key: https://appstoreconnect.apple.com/access/integrations/api
 
-## GoogleCast (required for the build to succeed)
+## GoogleCast (Chromecast) is currently removed
 
-The app links `GoogleCast.xcframework`, which is **not in the repo** (it's
-gitignored) and Google offers no permanent download URL. The build — manual or
-CI — fails without it. Options:
-
-1. **Commit it:** download the SDK from
-   https://developers.google.com/cast/docs/developers#ios, unzip, copy
-   `GoogleCast.xcframework` into `sources/`, remove the matching line from
-   `.gitignore`, and commit it. Then delete the "Fetch GoogleCast SDK" step.
-2. **Host the zip** somewhere and set `GOOGLECAST_SDK_URL`.
-3. **Drop Cast support** if you don't need Chromecast (ask Claude to remove the
-   GoogleCast framework and Cast code) — this makes the build self-contained.
+Chromecast support was removed so the project builds without any external
+binary framework — the build is now self-contained and needs only Carthage
+(VLCKit), which CI installs automatically. To add casting back later, re-add
+`GoogleCast.xcframework` and the Cast code in `AppDelegate.swift` and
+`VPlayerController.swift`.
 
 ## Running it
 

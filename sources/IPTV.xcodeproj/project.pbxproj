@@ -27,8 +27,6 @@
 		9D9B36C72CE0456B00E79979 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9D9B36C62CE0456A00E79979 /* UIKit.framework */; };
 		9D9B36ED2CE2490F00E79979 /* Alamofire in Frameworks */ = {isa = PBXBuildFile; productRef = 9D9B36EC2CE2490F00E79979 /* Alamofire */; };
 		9D9B36FE2CE2D3AB00E79979 /* CachedAsyncImage in Frameworks */ = {isa = PBXBuildFile; productRef = 9D9B36FD2CE2D3AB00E79979 /* CachedAsyncImage */; };
-		9DBFC2722CECC00300E2544E /* GoogleCast.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9DBFC2702CECC00200E2544E /* GoogleCast.xcframework */; platformFilter = ios; };
-		9DBFC2732CECC01300E2544E /* GoogleCast.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 9DBFC2702CECC00200E2544E /* GoogleCast.xcframework */; platformFilter = ios; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -38,7 +36,6 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				9DBFC2732CECC01300E2544E /* GoogleCast.xcframework in Embed Frameworks */,
 				9D2165D42CE67E66008747ED /* RealmSwift in Embed Frameworks */,
 				9D2167212CEC00C2008747ED /* MobileVLCKit.xcframework in Embed Frameworks */,
 				9D2166F22CEBECA5008747ED /* TVVLCKit.xcframework in Embed Frameworks */,
@@ -78,7 +75,6 @@
 		9D9B36C52CE0454C00E79979 /* libiconv.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
 		9D9B36C62CE0456A00E79979 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		9D9B36D52CE2192300E79979 /* TVVLCKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = TVVLCKit.xcframework; path = Carthage/Build/TVVLCKit.xcframework; sourceTree = "<group>"; };
-		9DBFC2702CECC00200E2544E /* GoogleCast.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GoogleCast.xcframework; sourceTree = "<group>"; };
 		9DBFC3352CED6CD100E2544E /* TVServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = TVServices.framework; path = System/Library/Frameworks/TVServices.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -115,7 +111,6 @@
 				9D7867B82E0B096F00D68E99 /* IPTVComponents in Frameworks */,
 				9D2166EC2CEBE6C3008747ED /* FontAwesome in Frameworks */,
 				9D2167202CEC00C2008747ED /* MobileVLCKit.xcframework in Frameworks */,
-				9DBFC2722CECC00300E2544E /* GoogleCast.xcframework in Frameworks */,
 				9D9B36C72CE0456B00E79979 /* UIKit.framework in Frameworks */,
 				9D9B36A72CE042FC00E79979 /* VideoToolbox.framework in Frameworks */,
 				9D9B36B62CE0433E00E79979 /* QuartzCore.framework in Frameworks */,
@@ -153,7 +148,6 @@
 		9D9B36A52CE042FC00E79979 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				9DBFC2702CECC00200E2544E /* GoogleCast.xcframework */,
 				9D2166E72CEBE2D1008747ED /* MobileVLCKit.xcframework */,
 				9D779F112CE572EF00F6771A /* libboringssl.tbd */,
 				9D9B36D52CE2192300E79979 /* TVVLCKit.xcframework */,
