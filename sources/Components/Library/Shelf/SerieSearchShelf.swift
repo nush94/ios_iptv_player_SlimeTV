@@ -12,8 +12,11 @@ import SwiftUI
 
 public struct SeriesSearchShelf: View {
   @Namespace var mainNamespace
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   private let ratio: CGFloat = 250 / 375
-  private let column: Int = 6
+  private var column: Int {
+    horizontalSizeClass == .compact ? 2 : 6
+  }
 
   public var kindMedia: KindMedia
 

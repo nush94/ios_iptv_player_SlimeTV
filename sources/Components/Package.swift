@@ -7,6 +7,8 @@ import PackageDescription
 let dependencies: [Package.Dependency] = [
   .package(url: "https://github.com/realm/realm-swift.git", exact: "20.0.1"),
   .package(url: "https://github.com/Alamofire/Alamofire.git", exact: "5.10.1"),
+  // Note: GoogleCast SDK doesn't officially support SPM
+  // Use CocoaPods or manual integration instead
 ]
 
 // MARK: - Targets

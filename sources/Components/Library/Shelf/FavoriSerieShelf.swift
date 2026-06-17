@@ -11,8 +11,11 @@ import SwiftUI
 
 public struct FavoriSerieShelf: View {
   @Namespace var mainNamespace
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   private let ratio: CGFloat = 250 / 375
-  private let column: Int = 6
+  private var column: Int {
+    horizontalSizeClass == .compact ? 2 : 6
+  }
 
   public var kindMedia: KindMedia
 
@@ -40,52 +43,54 @@ public struct FavoriSerieShelf: View {
   }
 
   public var body: some View {
-    VStack {
-      sectionHeader()
-      ScrollView(.horizontal) {
-        LazyHStack(spacing: 16) {
-          ForEach(streams) { stream in
-            CustomButton(
-              action: {
-                openStream(stream)
-              }, longPressAction: {
-                removeStream(stream)
-              }
-            ) {
-              ZStack(alignment: .bottom) {
-                if let imageUrl = stream.getImage(), let url = URL(string: imageUrl) {
-                  Thumbnail(imageUrl: url, ratio: ratio, column: column)
-                } else {
-                  placeholder()
+    if streams.count > 0 {
+      VStack {
+        sectionHeader()
+        ScrollView(.horizontal) {
+          LazyHStack(spacing: 16) {
+            ForEach(streams) { stream in
+              CustomButton(
+                action: {
+                  openStream(stream)
+                }, longPressAction: {
+                  removeStream(stream)
                 }
+              ) {
+                ZStack(alignment: .bottom) {
+                  if let imageUrl = stream.getImage(), let url = URL(string: imageUrl) {
+                    Thumbnail(imageUrl: url, ratio: ratio, column: column)
+                  } else {
+                    placeholder()
+                  }
 
-                Text(stream.name.formatted())
-                  .lineLimit(2)
-                  .multilineTextAlignment(.center)
-                  .font(.system(size: 20))
-                  .frame(maxWidth: .infinity, maxHeight: 64)
-                  .background(Color.black.opacity(0.5))
+                  Text(stream.name.formatted())
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .font(.system(size: 20))
+                    .frame(maxWidth: .infinity, maxHeight: 64)
+                    .background(Color.black.opacity(0.5))
+                }
+                .aspectRatio(ratio, contentMode: .fit)
+                .containerRelativeFrame(.horizontal, count: column, spacing: 40)
               }
-              .aspectRatio(ratio, contentMode: .fit)
-              .containerRelativeFrame(.horizontal, count: column, spacing: 40)
-            }
 #if TARGET_OS_TV
-            .prefersDefaultFocus(in: mainNamespace)
+              .prefersDefaultFocus(in: mainNamespace)
 #endif
 
-            .id(stream.id)
+              .id(stream.id)
+            }
           }
         }
+        .scrollClipDisabled()
+        .buttonStyle(.borderless)
       }
-      .scrollClipDisabled()
-      .buttonStyle(.borderless)
     }
   }
 
   @ViewBuilder
   private func sectionHeader() -> some View {
     HStack {
-      Text("\(streams.count) x FAVORIS")
+      Text("Favorites")
         .lineLimit(4)
         .multilineTextAlignment(.center)
         .font(.system(size: 23, weight: .bold))

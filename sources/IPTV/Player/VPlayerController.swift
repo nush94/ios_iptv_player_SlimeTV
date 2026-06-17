@@ -10,8 +10,10 @@ import UIKit
 import TVVLCKit
 #endif
 #if os(iOS)
-import GoogleCast
 import MobileVLCKit
+#endif
+#if os(iOS) && canImport(GoogleCast)
+import GoogleCast
 #endif
 
 import FontAwesome
@@ -33,12 +35,13 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
   private let closeButton = UIButton(type: .system)
   private let audioTrackButton = UIButton(type: .system)
   private let subtitlesButton = UIButton(type: .system)
+  private let settingsButton = UIButton(type: .system)
 
   private let progressLabel = UILabel()
   private let videoContainerView = UIView(frame: .zero) // Conteneur pour la vidéo
   private let controlsContainerView = UIView() // Conteneur pour la vidéo
   private let backGround = UIView()
-#if os(iOS)
+#if os(iOS) && canImport(GoogleCast)
   private let castButton = GCKUICastButton()
   private var sessionManager: GCKSessionManager {
     GCKCastContext.sharedInstance().sessionManager
@@ -53,12 +56,32 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
 
   private var controlsVisible = true
   private var hideControlsTimer: Timer?
+  private var currentPlaybackRate: Float = 1.0
+  private var currentVideoMode: VideoMode = .fit
+  private var currentAspectRatioPointer: UnsafeMutablePointer<CChar>?
 
   private var playerTimeChangedNotification: NSObjectProtocol?
   private var playerStateChangedNotification: NSObjectProtocol?
 
   private var retryCount = 0
   private let maxRetries = 5
+
+  private enum VideoMode: Equatable {
+    case fit
+    case fill
+    case original
+
+    var title: String {
+      switch self {
+      case .fit:
+        return "Fit to Screen"
+      case .fill:
+        return "Fill Screen"
+      case .original:
+        return "Original Size"
+      }
+    }
+  }
 
   override func viewDidLoad() {
     super.viewDidLoad()
@@ -71,7 +94,7 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
       self.setupActions()
       self.showControls()
       self.setupRemoteInteraction()
-#if os(iOS)
+#if os(iOS) && canImport(GoogleCast)
       self.sessionManager.add(self)
 #endif
     }
@@ -152,6 +175,7 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
       mediaPlayer.media = nil
       mediaPlayer.drawable = nil
     }
+    free(currentAspectRatioPointer)
   }
 
   func playerStateChanged(_: Notification) {
@@ -219,7 +243,7 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
     controlsContainerView.isUserInteractionEnabled = true
   }
 
-#if os(iOS)
+#if os(iOS) && canImport(GoogleCast)
   private func setupMediaCast(mediaURL: URL, id: Int, kind _: KindMedia) {
     GCKCastContext.sharedInstance().presentDefaultExpandedMediaControls()
 
@@ -259,22 +283,14 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
   // MARK: - UI Setup
 
   private func setupUI() {
-    closeButton.setImage(UIImage(systemName: "arrowshape.turn.up.backward.fill"), for: .normal)
-    closeButton.alpha = 1
-    closeButton.tintColor = .white
+    controlsContainerView.backgroundColor = .black.withAlphaComponent(0.18)
 
-    playPauseButton.setImage(UIImage.fontAwesomeIcon(name: .pause, style: .solid, textColor: .white, size: CGSize(width: 32, height: 32)), for: .normal)
-    playPauseButton.alpha = 1
-    playPauseButton.tintColor = .white
-    forwardButton.setImage(UIImage.fontAwesomeIcon(name: .forward, style: .solid, textColor: .white, size: CGSize(width: 32, height: 32)), for: .normal)
-    forwardButton.setTitle("+ 30s", for: .normal)
-    forwardButton.alpha = 1
-    forwardButton.tintColor = .white
-    rewindButton.setImage(UIImage.fontAwesomeIcon(name: .backward, style: .solid, textColor: .white, size: CGSize(width: 32, height: 32)), for: .normal)
-    rewindButton.alpha = 1
-    rewindButton.tintColor = .white
-    rewindButton.setTitle("- 30s", for: .normal)
-#if os(iOS)
+    configureGlassButton(closeButton, systemName: "chevron.backward", size: 52, pointSize: 23)
+    configureGlassButton(settingsButton, systemName: "slider.horizontal.3", size: 52, pointSize: 22)
+    configureGlassButton(rewindButton, systemName: "gobackward.30", size: 58, pointSize: 25)
+    configureGlassButton(playPauseButton, systemName: "pause.fill", size: 70, pointSize: 30, backgroundAlpha: 0.82)
+    configureGlassButton(forwardButton, systemName: "goforward.30", size: 58, pointSize: 25)
+#if os(iOS) && canImport(GoogleCast)
     castButton.frame = CGRectMake(0, 0, 24, 24)
     castButton.tintColor = UIColor.gray
 #endif
@@ -282,35 +298,38 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
     progressLabel.text = String(format: "%@ / %@", currentTimeString, videoLengthString)
     progressLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 18, weight: .medium)
     progressLabel.textColor = .white
+    progressLabel.adjustsFontSizeToFitWidth = true
+    progressLabel.minimumScaleFactor = 0.75
+    progressLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
     // Configure AudioTrackButton
-    audioTrackButton.setImage(UIImage(systemName: "mouth.fill"), for: .normal)
-    audioTrackButton.tintColor = .white
+    configureGlassButton(audioTrackButton, systemName: "waveform", size: 48, pointSize: 20)
 
     // Configure SubtitlesButton
-    subtitlesButton.setImage(UIImage(systemName: "globe.badge.chevron.backward"), for: .normal)
-    subtitlesButton.tintColor = .white
+    configureGlassButton(subtitlesButton, systemName: "captions.bubble", size: 48, pointSize: 20)
 
     let spacer = UIView()
 
-#if os(iOS)
-    let stopStack = UIStackView(arrangedSubviews: [closeButton, spacer, castButton, audioTrackButton, subtitlesButton, progressLabel])
+#if os(iOS) && canImport(GoogleCast)
+    let stopStack = UIStackView(arrangedSubviews: [closeButton, progressLabel, spacer, settingsButton, castButton])
+#elseif os(iOS)
+    let stopStack = UIStackView(arrangedSubviews: [closeButton, progressLabel, spacer, settingsButton])
 #endif
 #if os(tvOS)
-    let stopStack = UIStackView(arrangedSubviews: [closeButton, spacer, audioTrackButton, subtitlesButton, progressLabel])
+    let stopStack = UIStackView(arrangedSubviews: [closeButton, progressLabel, spacer, settingsButton])
 #endif
 
     stopStack.axis = .horizontal
-    stopStack.spacing = 30
-    stopStack.alignment = .top
+    stopStack.spacing = 12
+    stopStack.alignment = .center
     stopStack.translatesAutoresizingMaskIntoConstraints = false
 
     controlsContainerView.addSubview(stopStack)
 
     NSLayoutConstraint.activate([
-      stopStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-      stopStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-      stopStack.topAnchor.constraint(equalTo: view.topAnchor, constant: 32),
+      stopStack.leadingAnchor.constraint(equalTo: controlsContainerView.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+      stopStack.trailingAnchor.constraint(equalTo: controlsContainerView.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+      stopStack.topAnchor.constraint(equalTo: controlsContainerView.safeAreaLayoutGuide.topAnchor, constant: 12),
     ])
 
     let controlsStack = UIStackView(arrangedSubviews: [rewindButton, playPauseButton, forwardButton])
@@ -332,6 +351,29 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
     view.bringSubviewToFront(controlsContainerView)
   }
 
+  private func configureGlassButton(
+    _ button: UIButton,
+    systemName: String,
+    size: CGFloat,
+    pointSize: CGFloat,
+    backgroundAlpha: CGFloat = 0.52
+  ) {
+    let image = UIImage(systemName: systemName, withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold))
+    button.setImage(image, for: .normal)
+    button.setTitle(nil, for: .normal)
+    button.tintColor = .white
+    button.backgroundColor = .black.withAlphaComponent(backgroundAlpha)
+    button.layer.cornerRadius = size / 2
+    button.layer.borderWidth = 1
+    button.layer.borderColor = UIColor.white.withAlphaComponent(0.18).cgColor
+    button.clipsToBounds = true
+    button.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      button.widthAnchor.constraint(equalToConstant: size),
+      button.heightAnchor.constraint(equalToConstant: size),
+    ])
+  }
+
   @objc private func selectAudioTrack() {
     guard let audioTracks = mediaPlayer.audioTrackNames as? [String] else { return }
 
@@ -343,7 +385,7 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
       }))
     }
     alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-    present(alert, animated: true)
+    presentActionSheet(alert, from: settingsButton)
   }
 
   @objc private func toggleSubtitles() {
@@ -360,6 +402,98 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
       }))
     }
     alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+    presentActionSheet(alert, from: settingsButton)
+  }
+
+  @objc private func showPlaybackSettings() {
+    let alert = UIAlertController(
+      title: "Playback Settings",
+      message: "Speed: \(formattedRate(currentPlaybackRate)) • Video: \(currentVideoMode.title)",
+      preferredStyle: .actionSheet
+    )
+
+    let rates: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+    rates.forEach { rate in
+      let title = rate == currentPlaybackRate ? "Speed \(formattedRate(rate)) ✓" : "Speed \(formattedRate(rate))"
+      alert.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
+        self?.setPlaybackRate(rate)
+      })
+    }
+
+    alert.addAction(UIAlertAction(title: videoModeTitle(.fit), style: .default) { [weak self] _ in
+      self?.setVideoMode(.fit)
+    })
+    alert.addAction(UIAlertAction(title: videoModeTitle(.fill), style: .default) { [weak self] _ in
+      self?.setVideoMode(.fill)
+    })
+    alert.addAction(UIAlertAction(title: videoModeTitle(.original), style: .default) { [weak self] _ in
+      self?.setVideoMode(.original)
+    })
+
+    if !mediaPlayer.audioTrackNames.isEmpty {
+      alert.addAction(UIAlertAction(title: "Audio Track", style: .default) { [weak self] _ in
+        self?.selectAudioTrack()
+      })
+    }
+
+    if !mediaPlayer.videoSubTitlesNames.isEmpty {
+      alert.addAction(UIAlertAction(title: "Subtitles", style: .default) { [weak self] _ in
+        self?.toggleSubtitles()
+      })
+    }
+
+    alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+    presentActionSheet(alert, from: settingsButton)
+    resetHideControlsTimer()
+  }
+
+  private func setPlaybackRate(_ rate: Float) {
+    currentPlaybackRate = rate
+    mediaPlayer.rate = rate
+    resetHideControlsTimer()
+  }
+
+  private func setVideoMode(_ mode: VideoMode) {
+    currentVideoMode = mode
+
+    switch mode {
+    case .fit:
+      mediaPlayer.scaleFactor = 0
+      setVideoAspectRatio(nil)
+    case .fill:
+      mediaPlayer.scaleFactor = 0
+      let videoBounds = videoContainerView.bounds.size == .zero ? view.bounds.size : videoContainerView.bounds.size
+      let width = max(Int(videoBounds.width.rounded()), 1)
+      let height = max(Int(videoBounds.height.rounded()), 1)
+      setVideoAspectRatio("\(width):\(height)")
+    case .original:
+      setVideoAspectRatio(nil)
+      mediaPlayer.scaleFactor = 1
+    }
+
+    resetHideControlsTimer()
+  }
+
+  private func setVideoAspectRatio(_ ratio: String?) {
+    let oldPointer = currentAspectRatioPointer
+    currentAspectRatioPointer = ratio.flatMap { strdup($0) }
+    mediaPlayer.videoAspectRatio = currentAspectRatioPointer
+    free(oldPointer)
+  }
+
+  private func videoModeTitle(_ mode: VideoMode) -> String {
+    mode == currentVideoMode ? "\(mode.title) ✓" : mode.title
+  }
+
+  private func formattedRate(_ rate: Float) -> String {
+    rate.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(rate))x" : "\(rate)x"
+  }
+
+  private func presentActionSheet(_ alert: UIAlertController, from sourceView: UIView) {
+    if let popover = alert.popoverPresentationController {
+      popover.sourceView = sourceView
+      popover.sourceRect = sourceView.bounds
+    }
     present(alert, animated: true)
   }
 
@@ -370,6 +504,7 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
     closeButton.addTarget(self, action: #selector(closeView), for: .primaryActionTriggered)
     audioTrackButton.addTarget(self, action: #selector(selectAudioTrack), for: .primaryActionTriggered)
     subtitlesButton.addTarget(self, action: #selector(toggleSubtitles), for: .primaryActionTriggered)
+    settingsButton.addTarget(self, action: #selector(showPlaybackSettings), for: .primaryActionTriggered)
   }
 
   @objc
@@ -389,13 +524,16 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
       self.playPauseButton.alpha = 1
       self.forwardButton.alpha = 1
       self.rewindButton.alpha = 1
+      self.closeButton.alpha = 1
+      self.settingsButton.alpha = 1
+      self.progressLabel.alpha = 1
 
       if self.mediaPlayer.videoSubTitlesNames.isEmpty {
         self.subtitlesButton.alpha = 0
       } else {
         self.subtitlesButton.alpha = 1
       }
-      if self.mediaPlayer.videoTrackNames.isEmpty {
+      if self.mediaPlayer.audioTrackNames.isEmpty {
         self.audioTrackButton.alpha = 0
       } else {
         self.audioTrackButton.alpha = 1
@@ -411,6 +549,9 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
       self.playPauseButton.alpha = 0
       self.forwardButton.alpha = 0
       self.rewindButton.alpha = 0
+      self.closeButton.alpha = 0
+      self.settingsButton.alpha = 0
+      self.progressLabel.alpha = 0
     }
   }
 
@@ -450,12 +591,12 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
   @objc private func togglePlayPause() {
     if mediaPlayer.isPlaying {
       mediaPlayer.pause()
-      playPauseButton.setImage(UIImage.fontAwesomeIcon(name: .play, style: .solid, textColor: .white, size: CGSize(width: 32, height: 32)), for: .normal)
+      playPauseButton.setImage(UIImage(systemName: "play.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 30, weight: .semibold)), for: .normal)
       playPauseButton.alpha = 1
       playPauseButton.tintColor = .white
     } else {
       mediaPlayer.play()
-      playPauseButton.setImage(UIImage.fontAwesomeIcon(name: .pause, style: .solid, textColor: .white, size: CGSize(width: 32, height: 32)), for: .normal)
+      playPauseButton.setImage(UIImage(systemName: "pause.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 30, weight: .semibold)), for: .normal)
       playPauseButton.alpha = 1
       playPauseButton.tintColor = .white
     }
@@ -485,7 +626,7 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
   }
 }
 
-#if os(iOS)
+#if os(iOS) && canImport(GoogleCast)
 extension VPlayerController: GCKSessionManagerListener, GCKRemoteMediaClientListener, GCKRequestDelegate {
   // MARK: - GCKSessionManagerListener
 

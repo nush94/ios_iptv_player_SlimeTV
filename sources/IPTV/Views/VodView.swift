@@ -11,9 +11,23 @@ public struct VodView: View {
 
   @State var progress: Double = 0.0
   @State var isLoading: Bool = false
+  @State private var selectedCategoryId: String?
 
   private let kindMedia: KindMedia
   @ObservedResults(CategoryEntity.self, where: ({ $0.section == KindMedia.vod.rawValue })) var categories
+  @ObservedResults(CachedStream.self, where: ({ $0.section == KindMedia.vod.rawValue }), sortDescriptor: SortDescriptor(keyPath: "added", ascending: false)) var movies
+
+  private var visibleCategories: [CategoryEntity] {
+    guard let selectedCategoryId else {
+      return Array(categories)
+    }
+
+    return categories.filter { $0.id == selectedCategoryId }
+  }
+
+  private var featuredMovie: CachedStream? {
+    movies.first
+  }
 
   public init(kindMedia: KindMedia) {
     self.kindMedia = kindMedia
@@ -22,40 +36,39 @@ public struct VodView: View {
   public var body: some View {
     NavigationStack {
       ScrollView {
-        LazyVStack(alignment: .trailing, spacing: 36) {
-          HStack {
-            refreshButton
-              .padding(.bottom, 16)
-              .disabled(isLoading)
-
-            if isLoading {
-              ProgressView()
-                .progressViewStyle(.circular)
+        LazyVStack(alignment: .leading, spacing: 24) {
+          if categories.count == 0 || movies.count == 0 {
+            LibraryEmptyStateView(
+              systemImage: "film.stack",
+              title: categories.count == 0 ? "No movie categories yet" : "No movies loaded yet",
+              message: "Add your Xtream playlist in Settings, then tap Save & Load Playlist."
+            )
+            .padding(.top, 48)
+          } else {
+            FeaturedMovieHeroView(movie: featuredMovie) {
+              if let featuredMovie {
+                currentID = featuredMovie.id
+                selectedStreamURL = URL(string: featuredMovie.streamURL())
+                showPlayer = true
+              }
             }
-          }
+            .padding(.horizontal, -16)
+            .padding(.top, -8)
 
-          makeSectionFavori()
+            makeSectionFavori()
 
-          ForEach(categories, id: \.id) { category in
-            makeSection(for: category)
-          }
-
-          if categories.count == 0 {
-            VStack(alignment: .center) {
-              Spacer()
-              Text("Charger la liste des chaines !")
-              Spacer()
+            ForEach(visibleCategories, id: \.id) { category in
+              makeSection(for: category)
             }
-            .frame(height: 500)
-            .frame(maxWidth: .infinity, alignment: .center)
           }
         }
         .padding(.horizontal)
+        .padding(.bottom, 24)
       }
       .background {
         HeroHeaderView(belowFold: true)
       }
-      .alert("Erreur", isPresented: $showErrorAlert) {
+      .alert("Error", isPresented: $showErrorAlert) {
         Button("OK", role: .cancel) {
         }
       } message: {
@@ -83,17 +96,6 @@ public struct VodView: View {
         showPlayer = true
       }
     }
-  }
-
-  @ViewBuilder
-  private var refreshButton: some View {
-    Button("Rafraîchir") {
-      isLoading = true
-      Task.detached(priority: .background) {
-        await loadCategories()
-      }
-    }
-    .frame(maxWidth: .infinity, alignment: .trailing)
   }
 
   @ViewBuilder

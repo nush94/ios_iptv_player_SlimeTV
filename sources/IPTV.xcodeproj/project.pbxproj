@@ -27,8 +27,6 @@
 		9D9B36C72CE0456B00E79979 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9D9B36C62CE0456A00E79979 /* UIKit.framework */; };
 		9D9B36ED2CE2490F00E79979 /* Alamofire in Frameworks */ = {isa = PBXBuildFile; productRef = 9D9B36EC2CE2490F00E79979 /* Alamofire */; };
 		9D9B36FE2CE2D3AB00E79979 /* CachedAsyncImage in Frameworks */ = {isa = PBXBuildFile; productRef = 9D9B36FD2CE2D3AB00E79979 /* CachedAsyncImage */; };
-		9DBFC2722CECC00300E2544E /* GoogleCast.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9DBFC2702CECC00200E2544E /* GoogleCast.xcframework */; platformFilter = ios; };
-		9DBFC2732CECC01300E2544E /* GoogleCast.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 9DBFC2702CECC00200E2544E /* GoogleCast.xcframework */; platformFilter = ios; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -38,7 +36,6 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				9DBFC2732CECC01300E2544E /* GoogleCast.xcframework in Embed Frameworks */,
 				9D2165D42CE67E66008747ED /* RealmSwift in Embed Frameworks */,
 				9D2167212CEC00C2008747ED /* MobileVLCKit.xcframework in Embed Frameworks */,
 				9D2166F22CEBECA5008747ED /* TVVLCKit.xcframework in Embed Frameworks */,
@@ -78,7 +75,6 @@
 		9D9B36C52CE0454C00E79979 /* libiconv.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
 		9D9B36C62CE0456A00E79979 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		9D9B36D52CE2192300E79979 /* TVVLCKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = TVVLCKit.xcframework; path = Carthage/Build/TVVLCKit.xcframework; sourceTree = "<group>"; };
-		9DBFC2702CECC00200E2544E /* GoogleCast.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GoogleCast.xcframework; sourceTree = "<group>"; };
 		9DBFC3352CED6CD100E2544E /* TVServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = TVServices.framework; path = System/Library/Frameworks/TVServices.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -86,6 +82,7 @@
 		9D9B36A22CE0391800E79979 /* Exceptions for "IPTV" folder in "IPTV" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				Configs/default.xcconfig,
 				Info.plist,
 				"Preview Content/Preview Assets.xcassets",
 			);
@@ -115,7 +112,6 @@
 				9D7867B82E0B096F00D68E99 /* IPTVComponents in Frameworks */,
 				9D2166EC2CEBE6C3008747ED /* FontAwesome in Frameworks */,
 				9D2167202CEC00C2008747ED /* MobileVLCKit.xcframework in Frameworks */,
-				9DBFC2722CECC00300E2544E /* GoogleCast.xcframework in Frameworks */,
 				9D9B36C72CE0456B00E79979 /* UIKit.framework in Frameworks */,
 				9D9B36A72CE042FC00E79979 /* VideoToolbox.framework in Frameworks */,
 				9D9B36B62CE0433E00E79979 /* QuartzCore.framework in Frameworks */,
@@ -153,7 +149,6 @@
 		9D9B36A52CE042FC00E79979 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				9DBFC2702CECC00200E2544E /* GoogleCast.xcframework */,
 				9D2166E72CEBE2D1008747ED /* MobileVLCKit.xcframework */,
 				9D779F112CE572EF00F6771A /* libboringssl.tbd */,
 				9D9B36D52CE2192300E79979 /* TVVLCKit.xcframework */,
@@ -218,7 +213,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1620;
-				LastUpgradeCheck = 1640;
+				LastUpgradeCheck = 2610;
 				TargetAttributes = {
 					9D9B36742CE02D8A00E79979 = {
 						CreatedOnToolsVersion = 16.1;
@@ -309,7 +304,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = 4D3FPL7ALU;
+				DEVELOPMENT_TEAM = 5DGTSWUCC7;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -332,6 +327,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = appletvos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				TVOS_DEPLOYMENT_TARGET = 18.1;
@@ -351,7 +347,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				ASSETCATALOG_COMPILER_SKIP_APP_STORE_DEPLOYMENT = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_ASSET_PATHS = "\"IPTV/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -370,7 +366,7 @@
 				);
 				MARKETING_VERSION = "$(XCC_VERSION_NAME)";
 				OTHER_LDFLAGS = "\"-ObjC -lc++\"";
-				PRODUCT_BUNDLE_IDENTIFIER = fr.meublin.IPTV;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nush94.slimetv;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "appletvos appletvsimulator iphoneos iphonesimulator";
@@ -378,7 +374,8 @@
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "2,3,6";
+				TARGETED_DEVICE_FAMILY = "1,2";
+				"TARGETED_DEVICE_FAMILY[sdk=appletv*]" = 3;
 				TVOS_DEPLOYMENT_TARGET = 18.0;
 			};
 			name = "Debug-iOS";
@@ -420,7 +417,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = 4D3FPL7ALU;
+				DEVELOPMENT_TEAM = 5DGTSWUCC7;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -443,6 +440,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = appletvos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				TVOS_DEPLOYMENT_TARGET = 18.1;
@@ -486,7 +484,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = 4D3FPL7ALU;
+				DEVELOPMENT_TEAM = 5DGTSWUCC7;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -502,6 +500,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = appletvos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				TVOS_DEPLOYMENT_TARGET = 18.1;
 				VALIDATE_PRODUCT = YES;
@@ -522,7 +521,7 @@
 				ASSETCATALOG_COMPILER_SKIP_APP_STORE_DEPLOYMENT = YES;
 				CODE_SIGN_ENTITLEMENTS = IPTV/IPTVDebug.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_ASSET_PATHS = "\"IPTV/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -541,14 +540,15 @@
 				);
 				MARKETING_VERSION = "$(XCC_VERSION_NAME)";
 				OTHER_LDFLAGS = "\"-ObjC -lc++\"";
-				PRODUCT_BUNDLE_IDENTIFIER = fr.meublin.IPTV;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nush94.slimetv;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "appletvos appletvsimulator iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "2,3,6";
+				TARGETED_DEVICE_FAMILY = "1,2";
+				"TARGETED_DEVICE_FAMILY[sdk=appletv*]" = 3;
 				TVOS_DEPLOYMENT_TARGET = 18.0;
 			};
 			name = Debug;
@@ -566,7 +566,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				ASSETCATALOG_COMPILER_SKIP_APP_STORE_DEPLOYMENT = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_ASSET_PATHS = "\"IPTV/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -585,14 +585,15 @@
 				);
 				MARKETING_VERSION = "$(XCC_VERSION_NAME)";
 				OTHER_LDFLAGS = "\"-ObjC -lc++\"";
-				PRODUCT_BUNDLE_IDENTIFIER = fr.meublin.IPTV;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nush94.slimetv;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "appletvos appletvsimulator iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "2,3,6";
+				TARGETED_DEVICE_FAMILY = "1,2";
+				"TARGETED_DEVICE_FAMILY[sdk=appletv*]" = 3;
 				TVOS_DEPLOYMENT_TARGET = 18.0;
 			};
 			name = Release;

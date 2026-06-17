@@ -1,62 +1,67 @@
-# iOS IPTV Player
+# SlimeTV
 
-An advanced IPTV player application built for iOS using Swift. This project features support for live TV, VOD, and series streaming, with integration for Google Cast and a modular component-based architecture for scalability and maintainability.
+SlimeTV is an iOS IPTV player for Xtream-compatible playlists. It supports Movies, Shows, Live TV, search, favorites, and VLC-based playback.
 
-![Screen demo 1](./assets/screen1.png)
-![Screen demo 2](./assets/screen2.png)
+This repository is a modified fork of an open-source iOS IPTV player. The original project history credits Tarik ALAOUI M'HAMDI and other upstream contributors. This version has been customized with a new streaming-style interface, playlist setup flow, iOS signing/build fixes, and updated player controls.
 
-## ⚠️ Disclaimer  
-**This project is provided for educational purposes.**  
-**I do not provide any subscription or access to any IPTV stream. Piracy is illegal.**  
+## Important Notice
 
-## Features
+SlimeTV does not provide IPTV subscriptions, channels, movies, shows, streams, or playlist credentials. Users must provide their own lawful Xtream playlist access.
 
-- 📺 **Live TV**, **Movies**, and **Series** browsing and playback.
-- 🔍 Integrated search shelves by content type.
-- ⭐ Favorite management for quick access to preferred streams.
-- 🎬 TMDB image support for visual enrichment.
-- 🖥️ Google Cast support for casting to external devices.
-- 🎨 Custom UI components like `CircularProgressView`, `Snackbar`, and more.
-- 📦 Modular Swift Package-based component organization.
+Do not use this app for piracy or unauthorized streaming.
 
-## Architecture
+## Current Features
 
-The project is structured into well-defined modules:
+- Movies, Shows, and Live TV browsing from an Xtream playlist
+- First-time playlist setup prompt
+- Settings screen for full playlist URL or manual server, username, and password entry
+- Playlist loading for Live, Movies, and Shows
+- Streaming-style top navigation
+- Cleaner empty library states
+- Favorites shelves when favorites exist
+- Search across saved Movies, Live TV, and Shows
+- VLC video playback
+- Player controls for back, play/pause, 30-second skip, playback speed, video sizing, audio tracks, and subtitles
+- iOS bundle/signing updates for local testing and TestFlight preparation
 
-- `Components/Library/`: UI components and utilities.
-- `Components/Models/`: Models for users, media, favorites, categories.
-- `Components/Protocols/`: Protocols for API and cache handling.
-- `Components/Resources/Fonts`: Font resources (e.g., Font Awesome).
-- `GoogleCast.xcframework/`: Prebuilt framework for Cast integration.
+## Setup
 
-## Requirements
+1. Open `sources/IPTV.xcodeproj` in Xcode.
+2. Select the `IPTV-iOS` scheme.
+3. In Signing & Capabilities, select your Apple developer team.
+4. Build and run on an iPhone simulator or device.
+5. In the app, open Settings and add your Xtream playlist URL or server credentials.
+6. Tap `Save & Load Playlist`.
 
-- Xcode 14+
-- iOS 14.0+
-- Swift 5.7+
-- Carthage for dependency management
+## Dependencies
 
-## Installation
+This project uses Swift Package Manager dependencies and MobileVLCKit via Carthage/XCFramework setup.
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-username/ios-iptv-player.git
-   cd ios-iptv-player
-   ```
+If VLC frameworks are missing, run:
 
-2. Install dependencies with Carthage:
-    ```bash
-    carthage bootstrap --use-xcframeworks
-    ```
+```bash
+carthage bootstrap --use-xcframeworks
+```
 
+The app has Google Cast code guarded so the project can build without `GoogleCast.xcframework`.
 
-3. Google Cast
+## Modified Fork Notice
 
-Ensure that the [GoogleCast.xcframework](https://developers.google.com/cast/docs/ios_sender?hl=fr) is included in the project’s linked frameworks. 
-It supports both device and simulator builds.
+This version includes substantial changes from the upstream project, including:
 
-4.	Open the Xcode project or workspace.
+- Login gate removed for easier local testing
+- English UI text updates
+- Xtream playlist entry and parsing
+- Local playlist loading into Realm cache
+- Netflix/IPTVX-style top navigation
+- New empty setup and empty library screens
+- Cleaner shelf/category display
+- Safer handling of missing Google Cast framework
+- Player UI and playback settings improvements
+- iOS device family and signing fixes
 
-5. License
+## License
 
-This project is licensed under the terms of the MIT License.
+This repository includes a `LICENSE` file containing the GNU General Public License version 3 (GPLv3). This modified version is distributed under GPLv3 as a covered/modified work.
+
+If you distribute this app or a modified version, keep the GPLv3 license, keep attribution to upstream contributors, mark your changes, and provide the corresponding source code as required by GPLv3.

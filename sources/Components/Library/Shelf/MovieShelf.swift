@@ -11,8 +11,11 @@ import SwiftUI
 
 public struct MovieShelf: View {
   @Namespace var mainNamespace
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   private let ratio: CGFloat = 250 / 375
-  private let column: Int = 6
+  private var column: Int {
+    horizontalSizeClass == .compact ? 2 : 6
+  }
 
   public var category: CategoryEntity
   public var kindMedia: KindMedia
@@ -56,60 +59,64 @@ public struct MovieShelf: View {
   }
 
   public var body: some View {
-    VStack {
-      sectionHeader()
-      ScrollView(.horizontal) {
-        LazyHStack(spacing: 16) {
-          ForEach(filteredStreams) { stream in
-            CustomButton(
-              action: {
-                DispatchQueue.main.async {
-                  openStream(stream)
-                }
-              }, longPressAction: {
-                Task {
-                  await addFavori(stream: stream)
-                }
-              }
-            ) {
-              ZStack(alignment: .bottom) {
-                if let imageUrl = stream.getImage(), let url = URL(string: imageUrl) {
-                  Thumbnail(imageUrl: url, ratio: ratio, column: column)
-                } else {
-                  placeholder()
-                }
+    Group {
+      if filteredStreams.count > 0 {
+        VStack {
+          sectionHeader()
+          ScrollView(.horizontal) {
+            LazyHStack(spacing: 16) {
+              ForEach(filteredStreams) { stream in
+                CustomButton(
+                  action: {
+                    DispatchQueue.main.async {
+                      openStream(stream)
+                    }
+                  }, longPressAction: {
+                    Task {
+                      await addFavori(stream: stream)
+                    }
+                  }
+                ) {
+                  ZStack(alignment: .bottom) {
+                    if let imageUrl = stream.getImage(), let url = URL(string: imageUrl) {
+                      Thumbnail(imageUrl: url, ratio: ratio, column: column)
+                    } else {
+                      placeholder()
+                    }
 
-                Text(stream.name.formatted())
-                  .lineLimit(2)
-                  .multilineTextAlignment(.center)
-                  .foregroundStyle(.white)
-                  .font(.system(size: 14))
-                  .frame(maxWidth: .infinity, maxHeight: 64)
-                  .background(Color.black.opacity(0.5))
-              }
-              .aspectRatio(ratio, contentMode: .fit)
-              .containerRelativeFrame(.horizontal, count: column, spacing: 40)
-            }
+                    Text(stream.name.formatted())
+                      .lineLimit(2)
+                      .multilineTextAlignment(.center)
+                      .foregroundStyle(.white)
+                      .font(.system(size: 14))
+                      .frame(maxWidth: .infinity, maxHeight: 64)
+                      .background(Color.black.opacity(0.5))
+                  }
+                  .aspectRatio(ratio, contentMode: .fit)
+                  .containerRelativeFrame(.horizontal, count: column, spacing: 40)
+                }
 #if TARGET_OS_TV
-            .prefersDefaultFocus(in: mainNamespace)
+                .prefersDefaultFocus(in: mainNamespace)
 #endif
 
-            .id(stream.id)
+                .id(stream.id)
+              }
+            }
           }
+          .scrollClipDisabled()
+          .buttonStyle(.borderless)
         }
       }
-      .scrollClipDisabled()
-      .buttonStyle(.borderless)
     }
     .toast(isPresenting: $addToFavori, duration: 3) {
-      AlertToast(type: .regular, title: "Ajouté au favori")
+      AlertToast(type: .regular, title: "Added to favorites")
     }
   }
 
   @ViewBuilder
   private func sectionHeader() -> some View {
     HStack {
-      Text("\(filteredStreams.count) x \(category.name.formatted())")
+      Text(category.name.formatted())
         .lineLimit(4)
         .multilineTextAlignment(.center)
         .font(.system(size: 23, weight: .bold))

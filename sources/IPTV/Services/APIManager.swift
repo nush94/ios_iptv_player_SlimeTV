@@ -12,6 +12,10 @@ class APIManager: APIManagerProtocol {
     userStandard.string(forKey: "apiHost") ?? ""
   }
 
+  private var normalizedApiHost: String {
+    apiHost.trimmingCharacters(in: .whitespacesAndNewlines).trimmingTrailingSlashes()
+  }
+
   private var apiPassword: String {
     userStandard.string(forKey: "apiPassword") ?? ""
   }
@@ -21,19 +25,19 @@ class APIManager: APIManagerProtocol {
   }
 
   public var baseURL: String {
-    "\(apiHost)/player_api.php?username=\(apiLogin)&password=\(apiPassword)"
+    "\(normalizedApiHost)/player_api.php?username=\(apiLogin)&password=\(apiPassword)"
   }
 
   public var liveURL: String {
-    "\(apiHost)/\(apiLogin)/\(apiPassword)"
+    "\(normalizedApiHost)/\(apiLogin)/\(apiPassword)"
   }
 
   public var vodURL: String {
-    "\(apiHost)/movie/\(apiLogin)/\(apiPassword)"
+    "\(normalizedApiHost)/movie/\(apiLogin)/\(apiPassword)"
   }
 
   public var serieURL: String {
-    "\(apiHost)/series/\(apiLogin)/\(apiPassword)"
+    "\(normalizedApiHost)/series/\(apiLogin)/\(apiPassword)"
   }
 
   private let session: URLSession
@@ -53,11 +57,7 @@ class APIManager: APIManagerProtocol {
       self.performRequest(url: url) { (result: Result<[IPTVModels.Category], Error>) in
         switch result {
         case let .success(categories):
-          let keywords = ["[FR]", "|FR|", "[MA]", "[TN]", "|MA|", "|TN|", "TUNISIE", "TUNISA", "MOROCCO", "TUNISIA", "FRANCE", "FRENCH"]
-          let filteredCategories = categories.filter { category in
-            keywords.contains(where: { category.name.contains($0) })
-          }
-          completion(.success(filteredCategories))
+          completion(.success(categories))
         case let .failure(error):
           completion(.failure(error))
         }
@@ -197,5 +197,15 @@ class APIManager: APIManagerProtocol {
       }
     }
     task.resume()
+  }
+}
+
+private extension String {
+  func trimmingTrailingSlashes() -> String {
+    var value = self
+    while value.hasSuffix("/") {
+      value.removeLast()
+    }
+    return value
   }
 }

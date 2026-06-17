@@ -11,12 +11,15 @@ import SwiftUI
 
 public struct FavoriLiveShelf: View {
   @Namespace var mainNamespace
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   var openStream: (FavoriEntity) -> Void
   @ObservedResults(FavoriEntity.self, where: ({ $0.kind == KindMedia.live.rawValue })) var streams
 
   private let ratio: CGFloat = 250 / 150
-  private let column: Int = 6
+  private var column: Int {
+    horizontalSizeClass == .compact ? 2 : 6
+  }
   public var kindMedia: KindMedia
 
   public init(kindMedia: KindMedia, openStream: @escaping (FavoriEntity) -> Void) {
@@ -25,19 +28,19 @@ public struct FavoriLiveShelf: View {
   }
 
   public var body: some View {
-    VStack {
-      if streams.count > 0 {
+    if streams.count > 0 {
+      VStack {
         sectionHeader()
-      }
-      ScrollView(.horizontal) {
-        LazyHStack(spacing: 16) {
-          ForEach(streams) { stream in
-            customButton(stream)
+        ScrollView(.horizontal) {
+          LazyHStack(spacing: 16) {
+            ForEach(streams) { stream in
+              customButton(stream)
+            }
           }
         }
+        .scrollClipDisabled()
+        .buttonStyle(.borderless)
       }
-      .scrollClipDisabled()
-      .buttonStyle(.borderless)
     }
   }
 
@@ -95,7 +98,7 @@ public struct FavoriLiveShelf: View {
   @ViewBuilder
   private func sectionHeader() -> some View {
     HStack {
-      Text("\(streams.count) x FAVORIS")
+      Text("Favorites")
         .lineLimit(4)
         .multilineTextAlignment(.center)
         .font(.system(size: 23, weight: .bold))

@@ -5,11 +5,15 @@
 //  Created by Tarik ALAOUI on 19/11/2024.
 //
 #if os(iOS)
-import GoogleCast
-
 import Foundation
+import UIKit
+
+#if canImport(GoogleCast)
+import GoogleCast
+#endif
 
 class AppDelegate: UIResponder, UIApplicationDelegate {
+#if canImport(GoogleCast)
     let kReceiverAppID = kGCKDefaultMediaReceiverApplicationID
     let kDebugLoggingEnabled = true
 
@@ -23,8 +27,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         GCKLogger.sharedInstance().delegate = self
         return true
     }
+#else
+    func application(_: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        true
+    }
+#endif
 }
 
+#if canImport(GoogleCast)
 extension AppDelegate: GCKLoggerDelegate {
     // MARK: - GCKLoggerDelegate
 
@@ -39,4 +49,5 @@ extension AppDelegate: GCKLoggerDelegate {
         }
     }
 }
+#endif
 #endif

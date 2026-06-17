@@ -13,9 +13,19 @@ public struct SeriesView: View {
 
   @State var progress: Double = 0.0
   @State var isLoading: Bool = false
+  @State private var selectedCategoryId: String?
 
   private let kindMedia: KindMedia
   @ObservedResults(CategoryEntity.self, where: ({ $0.section == KindMedia.series.rawValue })) var categories
+  @ObservedResults(CachedSeries.self, where: ({ $0.section == KindMedia.series.rawValue })) var series
+
+  private var visibleCategories: [CategoryEntity] {
+    guard let selectedCategoryId else {
+      return Array(categories)
+    }
+
+    return categories.filter { $0.id == selectedCategoryId }
+  }
 
   public init(kindMedia: KindMedia) {
     self.kindMedia = kindMedia
@@ -24,28 +34,29 @@ public struct SeriesView: View {
   public var body: some View {
     NavigationStack {
       ScrollView {
-        LazyVStack(alignment: .trailing, spacing: 36) {
-          HStack {
-            refreshButton
-              .padding(.bottom, 16)
-              .disabled(isLoading)
+        LazyVStack(alignment: .leading, spacing: 24) {
+          if categories.count == 0 || series.count == 0 {
+            LibraryEmptyStateView(
+              systemImage: "rectangle.stack",
+              title: categories.count == 0 ? "No series categories yet" : "No shows loaded yet",
+              message: "Add your Xtream playlist in Settings, then tap Save & Load Playlist."
+            )
+            .padding(.top, 48)
+          } else {
+            makeSectionFavori()
 
-            if isLoading {
-              ProgressView()
-                .progressViewStyle(.circular)
+            ForEach(visibleCategories, id: \.id) { category in
+              makeSection(for: category)
             }
-          }
-          makeSectionFavori()
-          ForEach(categories, id: \.id) { category in
-            makeSection(for: category)
           }
         }
         .padding(.horizontal)
+        .padding(.bottom, 24)
       }
       .background {
         HeroHeaderView(belowFold: true)
       }
-      .alert("Erreur", isPresented: $showErrorAlert) {
+      .alert("Error", isPresented: $showErrorAlert) {
         Button("OK", role: .cancel) {
         }
       } message: {
@@ -57,16 +68,6 @@ public struct SeriesView: View {
         }
       })
     }
-  }
-
-  private var refreshButton: some View {
-    Button("Rafraîchir") {
-      isLoading = true
-      Task.detached(priority: .background) {
-        await loadCategories()
-      }
-    }
-    .frame(maxWidth: .infinity, alignment: .trailing)
   }
 
   @ViewBuilder

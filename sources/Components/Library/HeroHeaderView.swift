@@ -15,19 +15,24 @@ public struct HeroHeaderView: View {
   }
 
   public var body: some View {
-    Image("beach_landscape")
-      .resizable()
-      .aspectRatio(contentMode: .fill)
-      .overlay {
-        // The view builds the material gradient by filling an area with
-        // a material, and then masking that area using a linear
-        // gradient.
-        Rectangle()
-          .fill(.ultraThinMaterial)
-          .mask {
-            maskView
-          }
-      }
+    ZStack {
+      Color.black
+
+      Image("beach_landscape")
+        .resizable()
+        .aspectRatio(contentMode: .fill)
+        .opacity(0.32)
+
+      LinearGradient(
+        colors: [
+          .black.opacity(0.18),
+          .black.opacity(0.52),
+          .black.opacity(0.94),
+        ],
+        startPoint: .top,
+        endPoint: .bottom
+      )
+    }
       .ignoresSafeArea()
   }
 

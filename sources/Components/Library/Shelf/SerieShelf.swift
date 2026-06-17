@@ -11,8 +11,11 @@ import SwiftUI
 
 public struct SerieShelf: View {
   @Namespace var mainNamespace
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   private let ratio: CGFloat = 250 / 375
-  private let column: Int = 6
+  private var column: Int {
+    horizontalSizeClass == .compact ? 2 : 6
+  }
 
   public var category: CategoryEntity
   public var kindMedia: KindMedia
@@ -36,20 +39,24 @@ public struct SerieShelf: View {
   }
 
   public var body: some View {
-    VStack {
-      sectionHeader()
-      ScrollView(.horizontal) {
-        LazyHStack(spacing: 16) {
-          ForEach(filteredStreams) { serie in
-            customButton(serie)
+    Group {
+      if filteredStreams.count > 0 {
+        VStack {
+          sectionHeader()
+          ScrollView(.horizontal) {
+            LazyHStack(spacing: 16) {
+              ForEach(filteredStreams) { serie in
+                customButton(serie)
+              }
+            }
           }
+          .scrollClipDisabled()
+          .buttonStyle(.borderless)
         }
       }
-      .scrollClipDisabled()
-      .buttonStyle(.borderless)
     }
     .toast(isPresenting: $addToFavori, duration: 3) {
-      AlertToast(type: .regular, title: "Ajouté au favori")
+      AlertToast(type: .regular, title: "Added to favorites")
     }
   }
 
@@ -89,7 +96,7 @@ public struct SerieShelf: View {
   @ViewBuilder
   private func sectionHeader() -> some View {
     HStack {
-      Text("\(filteredStreams.count) x \(category.name.formatted())")
+      Text(category.name.formatted())
         .lineLimit(4)
         .multilineTextAlignment(.center)
         .font(.system(size: 23, weight: .bold))

@@ -12,6 +12,7 @@ import SwiftUI
 
 struct SerieDetailView: View {
   @Namespace var mainNamespace
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @State var showDescription = false
   @State var streamId: Int
   @State var serieDetail: SeriesDetail?
@@ -26,7 +27,9 @@ struct SerieDetailView: View {
   }
 
   private let ratio: CGFloat = 250 / 150
-  private let column: Int = 6
+  private var column: Int {
+    horizontalSizeClass == .compact ? 2 : 6
+  }
 
   private func allEpisodes(_: String) -> [Episode] {
     guard let serieDetail, let values = serieDetail.episodes?.values else {
@@ -164,7 +167,7 @@ struct SerieDetailView: View {
         Section {
           LazyVStack(spacing: 16) {
             LazyHStack {
-              Text("SAISON \(season)")
+              Text("SEASON \(season)")
                 .lineLimit(4)
                 .multilineTextAlignment(.center)
                 .font(.system(size: 23, weight: .bold))
@@ -206,30 +209,28 @@ struct SerieDetailView: View {
               Rectangle()
                 .foregroundColor(.white.opacity(0.5))
                 .opacity(0.2)
-                .aspectRatio(contentMode: .fill)
-                .frame(width: 250, height: 150)
+                .aspectRatio(ratio, contentMode: .fill)
             }, content: { image in
               image
                 .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: 250, height: 150)
+                .aspectRatio(ratio, contentMode: .fill)
             })
           } else {
             Image("beach_portrait", bundle: .main)
+              .resizable()
               .foregroundColor(.white.opacity(0.5))
               .opacity(0.2)
-              .aspectRatio(contentMode: .fill)
-              .frame(width: 250, height: 150)
+              .aspectRatio(ratio, contentMode: .fill)
           }
         }
+        .clipped()
 
         Text(episode.title.replacingOccurrences(of: filteredSerie?.name ?? "", with: ""))
           .lineLimit(2)
           .multilineTextAlignment(.center)
           .foregroundStyle(.white)
           .font(.system(size: 14))
-          .frame(width: 250)
-          .frame(maxHeight: 48)
+          .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 48)
           .padding(0)
           .background(Color.black.opacity(0.5))
       }
