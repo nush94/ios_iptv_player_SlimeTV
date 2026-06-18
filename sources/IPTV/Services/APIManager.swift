@@ -148,6 +148,25 @@ class APIManager: APIManagerProtocol {
     operationQueue.addOperation(operation)
   }
 
+  func fetchShortEPG(streamId: Int, completion: @escaping (Result<ShortEPGResponse, Error>) -> Void) {
+    guard let url = URL(string: "\(baseURL)&action=get_short_epg&stream_id=\(streamId)") else {
+      completion(.failure(NSError(domain: "Invalid URL", code: -1, userInfo: nil)))
+      return
+    }
+
+    let operation = BlockOperation {
+      self.performRequest(url: url) { (result: Result<ShortEPGResponse, Error>) in
+        switch result {
+        case let .success(epg):
+          completion(.success(epg))
+        case let .failure(error):
+          completion(.failure(error))
+        }
+      }
+    }
+    operationQueue.addOperation(operation)
+  }
+
   func fetchData(from url: URL, completion: @escaping (Result<Data, Error>) -> Void) {
     let operation = BlockOperation {
       let task = self.session.dataTask(with: url) { data, response, error in

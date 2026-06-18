@@ -66,3 +66,7 @@ sources/IPTV/Configs/dev.xcconfig
 sources/Carthage/Build
 sources/Carthage
 sources/GoogleCast.xcframework
+
+# Codex / Claude tooling caches
+.codex-home/
+.codex-xcode-cache/

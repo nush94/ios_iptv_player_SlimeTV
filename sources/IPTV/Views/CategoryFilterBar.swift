@@ -20,9 +20,10 @@ struct CategoryFilterBar: View {
           filterButton(title: category.name.formatted(), count: nil, categoryId: category.id)
         }
       }
+      .padding(.horizontal, 16)
       .padding(.vertical, 2)
     }
-    .scrollClipDisabled()
+    .scrollIndicators(.hidden)
   }
 
   private func filterButton(title: String, count: Int?, categoryId: String?) -> some View {

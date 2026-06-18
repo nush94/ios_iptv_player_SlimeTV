@@ -38,6 +38,7 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
   private let settingsButton = UIButton(type: .system)
 
   private let progressLabel = UILabel()
+  private let progressSlider = UISlider()
   private let videoContainerView = UIView(frame: .zero) // Conteneur pour la vidéo
   private let controlsContainerView = UIView() // Conteneur pour la vidéo
   private let backGround = UIView()
@@ -59,6 +60,7 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
   private var currentPlaybackRate: Float = 1.0
   private var currentVideoMode: VideoMode = .fit
   private var currentAspectRatioPointer: UnsafeMutablePointer<CChar>?
+  private var isSeeking = false
 
   private var playerTimeChangedNotification: NSObjectProtocol?
   private var playerStateChangedNotification: NSObjectProtocol?
@@ -179,8 +181,12 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
   }
 
   func playerStateChanged(_: Notification) {
-    videoLength = mediaPlayer.media!.length.intValue
-    videoLengthString = mediaPlayer.media!.length.stringValue
+    guard let length = mediaPlayer.media?.length else { return }
+    videoLength = length.intValue
+    videoLengthString = length.stringValue
+    DispatchQueue.main.async { [weak self] in
+      self?.updateProgressSlider()
+    }
   }
 
   func playerTimeChanged(_: Notification) {
@@ -190,6 +196,7 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
 
     DispatchQueue.main.async { [weak self] in
       self?.progressLabel.text = String(format: "%@ / %@", self?.currentTimeString ?? "00:00", self?.videoLengthString ?? "00:00")
+      self?.updateProgressSlider()
     }
   }
 
@@ -302,6 +309,16 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
     progressLabel.minimumScaleFactor = 0.75
     progressLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
+    progressSlider.minimumValue = 0
+    progressSlider.maximumValue = 1
+    progressSlider.value = 0
+    progressSlider.minimumTrackTintColor = .white
+    progressSlider.maximumTrackTintColor = .white.withAlphaComponent(0.22)
+    progressSlider.thumbTintColor = .white
+    progressSlider.translatesAutoresizingMaskIntoConstraints = false
+    progressSlider.isContinuous = true
+    progressSlider.isEnabled = false
+
     // Configure AudioTrackButton
     configureGlassButton(audioTrackButton, systemName: "waveform", size: 48, pointSize: 20)
 
@@ -344,6 +361,14 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
     NSLayoutConstraint.activate([
       controlsStack.centerXAnchor.constraint(equalTo: controlsContainerView.centerXAnchor),
       controlsStack.bottomAnchor.constraint(equalTo: controlsContainerView.safeAreaLayoutGuide.bottomAnchor, constant: -40),
+    ])
+
+    controlsContainerView.addSubview(progressSlider)
+    NSLayoutConstraint.activate([
+      progressSlider.leadingAnchor.constraint(equalTo: controlsContainerView.safeAreaLayoutGuide.leadingAnchor, constant: 24),
+      progressSlider.trailingAnchor.constraint(equalTo: controlsContainerView.safeAreaLayoutGuide.trailingAnchor, constant: -24),
+      progressSlider.bottomAnchor.constraint(equalTo: controlsStack.topAnchor, constant: -36),
+      progressSlider.heightAnchor.constraint(equalToConstant: 44),
     ])
 
     // Afficher les contrôles par défaut
@@ -505,6 +530,9 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
     audioTrackButton.addTarget(self, action: #selector(selectAudioTrack), for: .primaryActionTriggered)
     subtitlesButton.addTarget(self, action: #selector(toggleSubtitles), for: .primaryActionTriggered)
     settingsButton.addTarget(self, action: #selector(showPlaybackSettings), for: .primaryActionTriggered)
+    progressSlider.addTarget(self, action: #selector(startSeeking), for: .touchDown)
+    progressSlider.addTarget(self, action: #selector(updateSeekingPreview), for: .valueChanged)
+    progressSlider.addTarget(self, action: #selector(finishSeeking), for: [.touchUpInside, .touchUpOutside, .touchCancel])
   }
 
   @objc
@@ -527,6 +555,7 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
       self.closeButton.alpha = 1
       self.settingsButton.alpha = 1
       self.progressLabel.alpha = 1
+      self.progressSlider.alpha = 1
 
       if self.mediaPlayer.videoSubTitlesNames.isEmpty {
         self.subtitlesButton.alpha = 0
@@ -552,6 +581,7 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
       self.closeButton.alpha = 0
       self.settingsButton.alpha = 0
       self.progressLabel.alpha = 0
+      self.progressSlider.alpha = 0
     }
   }
 
@@ -616,6 +646,50 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
     let newTime = max(currentTime - 30000, 0) // Skip backward by 10 seconds
     mediaPlayer.time = VLCTime(int: newTime)
     resetHideControlsTimer()
+  }
+
+  @objc private func startSeeking() {
+    isSeeking = true
+    hideControlsTimer?.invalidate()
+  }
+
+  @objc private func updateSeekingPreview() {
+    guard let length = seekableLength else { return }
+    let previewTime = Int32(progressSlider.value * Float(length))
+    progressLabel.text = "\(VLCTime(int: previewTime).stringValue) / \(videoLengthString)"
+  }
+
+  @objc private func finishSeeking() {
+    guard let length = seekableLength else {
+      isSeeking = false
+      resetHideControlsTimer()
+      return
+    }
+
+    let newTime = Int32(progressSlider.value * Float(length))
+    mediaPlayer.time = VLCTime(int: newTime)
+    isSeeking = false
+    updateProgressSlider()
+    resetHideControlsTimer()
+  }
+
+  private func updateProgressSlider() {
+    guard !isSeeking else { return }
+
+    let length = max(videoLength, mediaPlayer.media?.length.intValue ?? 0)
+    guard length > 0 else {
+      progressSlider.value = 0
+      progressSlider.isEnabled = false
+      return
+    }
+
+    progressSlider.isEnabled = true
+    progressSlider.value = min(max(Float(videoCurrentTime) / Float(length), 0), 1)
+  }
+
+  private var seekableLength: Int32? {
+    let length = max(videoLength, mediaPlayer.media?.length.intValue ?? 0)
+    return length > 0 ? length : nil
   }
 
   private func resetHideControlsTimer() {
