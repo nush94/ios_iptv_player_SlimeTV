@@ -14,16 +14,19 @@ public class CachedStream: Object, ObjectKeyIdentifiable {
   @Persisted public var name: String
   @Persisted public var streamType: String
   @Persisted public var streamIcon: String
-  @Persisted public var added: Date
+  @Persisted(indexed: true) public var added: Date
   @Persisted public var rating: String?
   @Persisted public var desc: String?
   @Persisted public var tmdb: String?
   @Persisted public var tmdbImage: String?
-  @Persisted public var section: String
-  @Persisted public var categoryId: String
+  @Persisted(indexed: true) public var section: String
+  @Persisted(indexed: true) public var categoryId: String
   @Persisted public var year: Int?
+  @Persisted public var genre: String?
   @Persisted public var isFavorite: Bool
   @Persisted public var containerExtension: String
+  @Persisted public var tvArchive: Bool
+  @Persisted public var archiveDays: Int
 
   public var kindMedia: KindMedia {
     KindMedia(rawValue: section) ?? .vod
@@ -33,7 +36,7 @@ public class CachedStream: Object, ObjectKeyIdentifiable {
     name.lowercased()
   }
 
-  public convenience init(id: Int, name: String, streamType: String, streamIcon: String, section: String, added: Date, categoryId: String, rating: String? = nil, desc: String? = nil, tmdb: String? = nil, tmdbImage: String? = nil, year: Int?, containerExtension: String? = "mkv") {
+  public convenience init(id: Int, name: String, streamType: String, streamIcon: String, section: String, added: Date, categoryId: String, rating: String? = nil, desc: String? = nil, tmdb: String? = nil, tmdbImage: String? = nil, year: Int?, containerExtension: String? = "mkv", tvArchive: Bool = false, archiveDays: Int = 0) {
     self.init()
     self.id = id
     self.name = name
@@ -49,6 +52,8 @@ public class CachedStream: Object, ObjectKeyIdentifiable {
     self.year = year
     self.isFavorite = false
     self.containerExtension = containerExtension ?? "mkv"
+    self.tvArchive = tvArchive
+    self.archiveDays = archiveDays
   }
 
   public func getImage() -> String? {

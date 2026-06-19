@@ -18,6 +18,8 @@ public struct Stream: Identifiable, Decodable {
   public let categoryId: String
   public let year: Int?
   public let containerExtension: String
+  public let tvArchive: Bool
+  public let archiveDays: Int
 
   public var kindMedia: KindMedia {
     switch streamType {
@@ -41,9 +43,11 @@ public struct Stream: Identifiable, Decodable {
     case added
     case categoryId = "category_id"
     case containerExtension = "container_extension"
+    case tvArchive = "tv_archive"
+    case archiveDays = "tv_archive_duration"
   }
 
-  public init(id: Int, name: String, streamType: String, streamIcon: String, categoryId: String, rating: String? = nil, description: String? = nil, tmdb: FlexibleString? = nil, added: Date, year: Int? = nil, containerExtension: String? = "mkv") {
+  public init(id: Int, name: String, streamType: String, streamIcon: String, categoryId: String, rating: String? = nil, description: String? = nil, tmdb: FlexibleString? = nil, added: Date, year: Int? = nil, containerExtension: String? = "mkv", tvArchive: Bool = false, archiveDays: Int = 0) {
     self.id = id
     self.name = name
     self.streamType = streamType
@@ -55,6 +59,8 @@ public struct Stream: Identifiable, Decodable {
     self.categoryId = categoryId
     self.year = year
     self.containerExtension = containerExtension ?? "mkv"
+    self.tvArchive = tvArchive
+    self.archiveDays = archiveDays
   }
 
   public init(from decoder: Decoder) throws {
@@ -83,6 +89,12 @@ public struct Stream: Identifiable, Decodable {
     }
     self.containerExtension = (try? container.decode(String.self, forKey: .containerExtension)) ?? ""
     self.year = Int(Stream.extractYear(from: name) ?? "0")
+
+    let archiveFlag = (try? container.decode(Int.self, forKey: .tvArchive))
+      ?? Int((try? container.decode(String.self, forKey: .tvArchive)) ?? "0") ?? 0
+    self.tvArchive = archiveFlag == 1
+    self.archiveDays = (try? container.decode(Int.self, forKey: .archiveDays))
+      ?? Int((try? container.decode(String.self, forKey: .archiveDays)) ?? "0") ?? 0
   }
 
   // Méthode statique pour extraire l'année

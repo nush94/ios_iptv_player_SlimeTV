@@ -93,8 +93,6 @@ public struct LiveView: View {
               selectedCategoryId: $selectedCategoryId
             )
 
-            makeSectionFavori()
-
             VStack(alignment: .leading, spacing: 14) {
               HStack(alignment: .lastTextBaseline) {
                 Text(selectedCategoryTitle)
@@ -141,7 +139,7 @@ public struct LiveView: View {
         showPlayer && selectedStreamURL != nil
       }, set: { showPlayer = $0 })) {
         GeometryReader { _ in
-          ViewPlayerContent(mediaURL: selectedStreamURL!, id: currentID, kind: .live)
+          ViewPlayerContent(mediaURL: selectedStreamURL!, id: currentID, kind: .live, fallbackURLs: fallbackURLs)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .ignoresSafeArea()
         }
@@ -150,11 +148,25 @@ public struct LiveView: View {
   }
 
   @State private var currentID: Int = 9999
+  @State private var fallbackURLs: [URL] = []
 
   private func open(_ stream: CachedStream) {
     currentID = stream.id
-    selectedStreamURL = URL(string: stream.streamURL())
+
+    // Gather every source for this channel (same name) so the player can
+    // auto-fail over to a backup if the chosen one is dead.
+    let group = channelGroups.first { grp in grp.streams.contains { $0.id == stream.id } }
+    let sources = orderedSources(for: group, startingWith: stream)
+    let urls = sources.compactMap { URL(string: $0.streamURL()) }
+
+    selectedStreamURL = urls.first ?? URL(string: stream.streamURL())
+    fallbackURLs = Array(urls.dropFirst())
     showPlayer = true
+  }
+
+  private func orderedSources(for group: ChannelGroup?, startingWith stream: CachedStream) -> [CachedStream] {
+    guard let group, group.streams.count > 1 else { return [stream] }
+    return [stream] + group.streams.filter { $0.id != stream.id }
   }
 
   private func handleGroupTap(_ group: ChannelGroup) {

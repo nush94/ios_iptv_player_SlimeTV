@@ -17,419 +17,410 @@ struct SettingsView: View {
   @AppStorage("playlistURL") private var playlistURL: String = ""
   @AppStorage("expDate") private var expDate: String = ""
   @AppStorage("status") private var status: String = ""
+  @AppStorage("notificationsEnabled") private var notificationsEnabled: Bool = true
 
-  @State private var showSavedMessage: Bool = false
-  @State private var showErrorMessage: Bool = false
-  @State private var errorMessage: String = ""
-  @State private var isLoadingPlaylist: Bool = false
-  @State private var loadStatus: String = ""
+  @State private var showManagePlaylist = false
+  @State private var showAdvanced = false
+  @State private var showNotifications = false
+  @State private var showClearCacheAlert = false
+  @State private var showLogOutAlert = false
+  @State private var isRefreshingAccount = false
+
+  private var isConfigured: Bool {
+    !playlistURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      || [apiHost, apiLogin, apiPassword].allSatisfy {
+        !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      }
+  }
 
   var body: some View {
     ScrollView {
-      VStack(alignment: .leading, spacing: 22) {
+      VStack(alignment: .leading, spacing: 18) {
         Text("Settings")
           .font(.system(size: 36, weight: .bold))
           .foregroundStyle(.white)
-          .padding(.top, 14)
+          .padding(.top, 8)
+          .padding(.bottom, 2)
 
-        VStack(alignment: .leading, spacing: 14) {
-          sectionTitle("Xtream Playlist")
+        playlistCard
+        accountCard
+        appCard
+      }
+      .padding(.horizontal, 20)
+      .padding(.bottom, 36)
+    }
+    .background(Color.black.ignoresSafeArea())
+    .preferredColorScheme(.dark)
+    .sheet(isPresented: $showManagePlaylist) { ManagePlaylistView() }
+    .sheet(isPresented: $showAdvanced) { AdvancedPlaylistView() }
+    .sheet(isPresented: $showNotifications) {
+      NotificationsSettingsView(enabled: $notificationsEnabled)
+    }
+    .alert("Clear Cache", isPresented: $showClearCacheAlert) {
+      Button("Clear", role: .destructive) { CacheManager.shared.resetDatabase() }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("This removes downloaded Movies, Shows, and Live data. Your playlist stays saved and will reload from Manage Playlist.")
+    }
+    .alert("Log Out", isPresented: $showLogOutAlert) {
+      Button("Log Out", role: .destructive) { logOut() }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("This clears your playlist credentials and cached library from this device.")
+    }
+  }
 
-          settingsTextField("Full playlist URL", text: $playlistURL)
-            .keyboardType(.URL)
+  // MARK: - Playlist card
 
-          Button(action: fillFieldsFromPlaylistURL) {
-            HStack(spacing: 8) {
-              Image(systemName: "link")
-              Text("Fill From URL")
-            }
-            .font(.system(size: 16, weight: .semibold))
-            .frame(maxWidth: .infinity)
-            .frame(height: 46)
-          }
-          .buttonStyle(.plain)
-          .foregroundStyle(.red)
-          .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+  private var playlistCard: some View {
+    SettingsCard {
+      cardHeader(title: "Playlist", statusText: isConfigured ? "Connected" : "Not connected", isOn: isConfigured)
+
+      if isConfigured {
+        if !expDate.isEmpty {
+          expirationLine
         }
 
-        VStack(alignment: .leading, spacing: 14) {
-          sectionTitle("Connection")
+        VStack(spacing: 10) {
+          summaryRow(label: "Server", value: PlaylistService.displayHost(apiHost), mono: true)
+          divider
+          summaryRow(label: "Username", value: apiLogin.isEmpty ? "—" : apiLogin, mono: true)
+          divider
+          summaryRow(label: "Password", value: apiPassword.isEmpty ? "—" : "••••••••", mono: true)
+        }
+        .padding(.top, 4)
+      } else {
+        Text("No playlist added yet. Tap Manage Playlist to connect.")
+          .font(.subheadline)
+          .foregroundStyle(.white.opacity(0.6))
+      }
 
-          settingsTextField("Server URL", text: $apiHost)
-            .keyboardType(.URL)
-          settingsTextField("Username", text: $apiLogin)
-            .textContentType(.username)
-          settingsSecureField("Password", text: $apiPassword)
+      Button {
+        showManagePlaylist = true
+      } label: {
+        Text("Manage Playlist")
+          .font(.system(size: 16, weight: .bold))
+          .foregroundStyle(.white)
+          .frame(maxWidth: .infinity)
+          .frame(height: 48)
+          .background(.red, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+      }
+      .buttonStyle(.plain)
+      .padding(.top, 4)
 
-          Button(action: saveAndLoadPlaylist) {
+      Button {
+        showAdvanced = true
+      } label: {
+        HStack {
+          Text("Advanced")
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.85))
+          Spacer()
+          Image(systemName: "chevron.right")
+            .font(.system(size: 13, weight: .bold))
+            .foregroundStyle(.white.opacity(0.4))
+        }
+        .frame(height: 26)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+    }
+  }
+
+  // MARK: - Account card
+
+  private var accountCard: some View {
+    SettingsCard {
+      cardHeader(
+        title: "Account",
+        statusText: status.isEmpty ? (isConfigured ? "Active" : "Inactive") : status.capitalized,
+        isOn: isConfigured
+      )
+
+      if !expDate.isEmpty {
+        expirationLine
+      }
+
+      Button(action: refreshAccount) {
+        HStack(spacing: 8) {
+          if isRefreshingAccount {
+            ProgressView().tint(.white)
+          } else {
+            Image(systemName: "arrow.clockwise")
+          }
+          Text("Refresh Account")
+        }
+        .font(.system(size: 16, weight: .semibold))
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity)
+        .frame(height: 48)
+        .background {
+          RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .stroke(.white.opacity(0.22), lineWidth: 1)
+        }
+      }
+      .buttonStyle(.plain)
+      .disabled(isRefreshingAccount || !isConfigured)
+      .opacity(isConfigured ? 1 : 0.5)
+      .padding(.top, 2)
+    }
+  }
+
+  // MARK: - App card
+
+  private var appCard: some View {
+    SettingsCard(spacing: 0) {
+      appRow(icon: "trash", title: "Clear Cache") { showClearCacheAlert = true }
+      divider
+      appRow(icon: "bell", title: "Notifications") { showNotifications = true }
+      divider
+      appRow(icon: "rectangle.portrait.and.arrow.right", title: "Log Out", tint: .red) {
+        showLogOutAlert = true
+      }
+    }
+  }
+
+  // MARK: - Reusable pieces
+
+  private func cardHeader(title: String, statusText: String, isOn: Bool) -> some View {
+    HStack(alignment: .firstTextBaseline) {
+      Text(title)
+        .font(.system(size: 20, weight: .bold))
+        .foregroundStyle(.white)
+      Spacer()
+      HStack(spacing: 6) {
+        Circle()
+          .fill(isOn ? Color.green : Color.white.opacity(0.3))
+          .frame(width: 8, height: 8)
+        Text(statusText)
+          .font(.subheadline.weight(.semibold))
+          .foregroundStyle(isOn ? .white.opacity(0.85) : .white.opacity(0.5))
+      }
+    }
+  }
+
+  private var expirationLine: some View {
+    Text("Expires: \(expDate)")
+      .font(.footnote.weight(.medium))
+      .foregroundStyle(.white.opacity(0.55))
+  }
+
+  private func summaryRow(label: String, value: String, mono: Bool = false) -> some View {
+    HStack {
+      Text(label)
+        .font(.subheadline)
+        .foregroundStyle(.white.opacity(0.55))
+      Spacer()
+      Text(value)
+        .font(mono ? .system(.subheadline, design: .monospaced) : .subheadline)
+        .foregroundStyle(.white)
+        .lineLimit(1)
+        .truncationMode(.middle)
+    }
+  }
+
+  private func appRow(icon: String, title: String, tint: Color = .white, action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      HStack(spacing: 14) {
+        Image(systemName: icon)
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(tint)
+          .frame(width: 26)
+        Text(title)
+          .font(.system(size: 16, weight: .medium))
+          .foregroundStyle(tint)
+        Spacer()
+        Image(systemName: "chevron.right")
+          .font(.system(size: 13, weight: .bold))
+          .foregroundStyle(.white.opacity(0.4))
+      }
+      .frame(height: 52)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+  }
+
+  private var divider: some View {
+    Rectangle()
+      .fill(.white.opacity(0.08))
+      .frame(height: 1)
+  }
+
+  // MARK: - Actions
+
+  private func refreshAccount() {
+    isRefreshingAccount = true
+    PlaylistService.refreshUserInfo()
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+      isRefreshingAccount = false
+    }
+  }
+
+  private func logOut() {
+    CacheManager.shared.resetDatabase()
+    playlistURL = ""
+    apiHost = ""
+    apiLogin = ""
+    apiPassword = ""
+    expDate = ""
+    status = ""
+  }
+}
+
+// MARK: - Card container
+
+private struct SettingsCard<Content: View>: View {
+  var spacing: CGFloat = 14
+  @ViewBuilder var content: Content
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: spacing) {
+      content
+    }
+    .padding(.horizontal, 18)
+    .padding(.vertical, spacing == 0 ? 4 : 18)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: 18, style: .continuous)
+        .stroke(.white.opacity(0.08), lineWidth: 1)
+    }
+    .shadow(color: .black.opacity(0.35), radius: 16, x: 0, y: 8)
+  }
+}
+
+// MARK: - Advanced sheet
+
+private struct AdvancedPlaylistView: View {
+  @Environment(\.dismiss) private var dismiss
+  @AppStorage("playlistURL") private var playlistURL: String = ""
+  @AppStorage("apiHost") private var apiHost: String = ""
+
+  @State private var isReloading = false
+  @State private var statusText = ""
+  @State private var showResetAlert = false
+
+  var body: some View {
+    NavigationStack {
+      ScrollView {
+        VStack(alignment: .leading, spacing: 22) {
+          VStack(alignment: .leading, spacing: 8) {
+            Text("PLAYLIST URL")
+              .font(.system(size: 13, weight: .bold))
+              .foregroundStyle(.white.opacity(0.55))
+            Text(playlistURL.isEmpty ? PlaylistService.normalizedServerURL(apiHost) : playlistURL)
+              .font(.system(.footnote, design: .monospaced))
+              .foregroundStyle(.white.opacity(0.85))
+              .textSelection(.enabled)
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .padding(12)
+              .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+          }
+
+          Button(action: reload) {
             HStack(spacing: 10) {
-              if isLoadingPlaylist {
-                ProgressView()
-                  .tint(.white)
-              }
-              Text(isLoadingPlaylist ? "Loading Playlist" : "Save & Load Playlist")
+              if isReloading { ProgressView().tint(.white) }
+              Text(isReloading ? "Reloading…" : "Reload Playlist")
             }
-            .font(.system(size: 17, weight: .bold))
+            .font(.system(size: 16, weight: .bold))
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
-            .frame(height: 52)
+            .frame(height: 50)
             .background(.red, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
           }
           .buttonStyle(.plain)
-          .disabled(isLoadingPlaylist)
-          .opacity(isLoadingPlaylist ? 0.75 : 1)
+          .disabled(isReloading)
 
-          if !loadStatus.isEmpty {
-            Text(loadStatus)
+          Button { showResetAlert = true } label: {
+            Text("Reset Library")
+              .font(.system(size: 16, weight: .semibold))
+              .foregroundStyle(.red)
+              .frame(maxWidth: .infinity)
+              .frame(height: 50)
+              .background {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                  .stroke(.red.opacity(0.5), lineWidth: 1)
+              }
+          }
+          .buttonStyle(.plain)
+
+          if !statusText.isEmpty {
+            Text(statusText)
               .font(.footnote.weight(.medium))
               .foregroundStyle(.white.opacity(0.64))
+              .frame(maxWidth: .infinity, alignment: .center)
           }
         }
-
-        if !status.isEmpty || !expDate.isEmpty {
-          VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("Account")
-            Text("\(status) - Expires: \(expDate)")
-              .font(.callout)
-              .foregroundStyle(.white.opacity(0.72))
-          }
-          .padding(.top, 4)
+        .padding(20)
+      }
+      .background(Color.black.ignoresSafeArea())
+      .navigationTitle("Advanced")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .topBarTrailing) {
+          Button("Done") { dismiss() }.foregroundStyle(.white)
         }
       }
-      .padding(.horizontal, 24)
-      .padding(.bottom, 34)
-    }
-    .background {
-      Color.black.ignoresSafeArea()
-    }
-    .alert(isPresented: $showSavedMessage) {
-      Alert(
-        title: Text("Playlist Ready"),
-        message: Text("Your Xtream playlist was saved and loaded."),
-        dismissButton: .default(Text("OK"))
-      )
-    }
-    .alert(isPresented: $showErrorMessage) {
-      Alert(
-        title: Text("Error"),
-        message: Text(errorMessage),
-        dismissButton: .default(Text("OK"))
-      )
-    }
-    .onAppear {
-      seedDefaultSettingsIfNeeded()
-    }
-  }
-
-  private func sectionTitle(_ title: String) -> some View {
-    Text(title)
-      .font(.system(size: 15, weight: .bold))
-      .foregroundStyle(.white.opacity(0.66))
-      .textCase(.uppercase)
-  }
-
-  private func settingsTextField(
-    _ placeholder: String,
-    text: Binding<String>
-  ) -> some View {
-    TextField(placeholder, text: text)
-      .textInputAutocapitalization(.never)
-      .disableAutocorrection(true)
-      .foregroundStyle(.white)
-      .padding(.horizontal, 14)
-      .frame(height: 48)
-      .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-      .overlay {
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
-          .stroke(.white.opacity(0.10), lineWidth: 1)
-      }
-  }
-
-  private func settingsSecureField(_ placeholder: String, text: Binding<String>) -> some View {
-    SecureField(placeholder, text: text)
-      .textContentType(.password)
-      .textInputAutocapitalization(.never)
-      .disableAutocorrection(true)
-      .foregroundStyle(.white)
-      .padding(.horizontal, 14)
-      .frame(height: 48)
-      .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-      .overlay {
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
-          .stroke(.white.opacity(0.10), lineWidth: 1)
-      }
-  }
-
-  private func validateAndSaveSettings() -> Bool {
-    guard applyPlaylistURLIfPresent() else {
-      return false
-    }
-
-    if apiLogin.isEmpty {
-      errorMessage = "Username is required."
-      showErrorMessage = true
-      return false
-    }
-
-    if apiPassword.isEmpty {
-      errorMessage = "Password is required."
-      showErrorMessage = true
-      return false
-    }
-
-    if apiHost.isEmpty {
-      errorMessage = "Server URL is required."
-      showErrorMessage = true
-      return false
-    }
-
-    apiHost = normalizedServerURL(apiHost)
-    return true
-  }
-
-  private func saveSettings(showAlert: Bool = true) {
-    if showAlert {
-      showSavedMessage = true
-    }
-
-    APIManager.shared.fetchInfoUser(from: "\(APIManager.shared.baseURL)&action=get_infos") { result in
-      switch result {
-      case let .success(userInfo):
-        print(userInfo)
-        UserDefaults.standard.set(userInfo.userInfo.expDate.formatted(), forKey: "expDate")
-        UserDefaults.standard.set(userInfo.userInfo.status, forKey: "status")
-        UserDefaults.standard.synchronize()
-      case let .failure(failure):
-        print(failure)
+      .preferredColorScheme(.dark)
+      .alert("Reset Library", isPresented: $showResetAlert) {
+        Button("Reset", role: .destructive) { PlaylistService.clearCachedLibrary() }
+        Button("Cancel", role: .cancel) {}
+      } message: {
+        Text("Removes all cached content. Reload Playlist to fetch it again.")
       }
     }
   }
 
-  private func saveAndLoadPlaylist() {
-    guard !isLoadingPlaylist else {
-      return
-    }
-
-    guard validateAndSaveSettings() else {
-      return
-    }
-
-    saveSettings(showAlert: false)
-    isLoadingPlaylist = true
-    loadStatus = "Connecting..."
-
+  private func reload() {
+    isReloading = true
+    statusText = "Connecting..."
     Task {
       do {
-        try await loadFullPlaylist()
-        await MainActor.run {
-          isLoadingPlaylist = false
-          loadStatus = "Playlist loaded."
-          showSavedMessage = true
-        }
+        try await PlaylistService.loadFullPlaylist { statusText = $0 }
+        statusText = "Playlist reloaded."
       } catch {
-        await MainActor.run {
-          isLoadingPlaylist = false
-          errorMessage = error.localizedDescription
-          showErrorMessage = true
-          loadStatus = "Could not load playlist."
+        statusText = "Could not reload: \(error.localizedDescription)"
+      }
+      isReloading = false
+    }
+  }
+}
+
+// MARK: - Notifications sheet
+
+private struct NotificationsSettingsView: View {
+  @Environment(\.dismiss) private var dismiss
+  @Binding var enabled: Bool
+
+  var body: some View {
+    NavigationStack {
+      ScrollView {
+        VStack(spacing: 14) {
+          Toggle(isOn: $enabled) {
+            VStack(alignment: .leading, spacing: 2) {
+              Text("Allow Notifications")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.white)
+              Text("Get alerts about new content and reminders.")
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(0.55))
+            }
+          }
+          .tint(.red)
+          .padding(16)
+          .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .padding(20)
+      }
+      .background(Color.black.ignoresSafeArea())
+      .navigationTitle("Notifications")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .topBarTrailing) {
+          Button("Done") { dismiss() }.foregroundStyle(.white)
         }
       }
-    }
-  }
-
-  private func seedDefaultSettingsIfNeeded() {
-    if apiHost.isEmpty, !AppConfig.apiHost.isEmpty {
-      apiHost = AppConfig.apiHost
-    }
-
-    if apiPassword.isEmpty, !AppConfig.apiPassword.isEmpty {
-      apiPassword = AppConfig.apiPassword
-    }
-
-    if apiLogin.isEmpty, !AppConfig.apiLogin.isEmpty {
-      apiLogin = AppConfig.apiLogin
-    }
-  }
-
-  private func fillFieldsFromPlaylistURL() {
-    guard !playlistURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-      errorMessage = "Playlist URL is required."
-      showErrorMessage = true
-      return
-    }
-
-    if applyPlaylistURLIfPresent() {
-      loadStatus = "URL filled. Tap Save & Load Playlist."
-    }
-  }
-
-  private func applyPlaylistURLIfPresent() -> Bool {
-    let trimmedPlaylistURL = playlistURL.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmedPlaylistURL.isEmpty else {
-      return true
-    }
-
-    guard let credentials = parseXtreamURL(trimmedPlaylistURL) else {
-      errorMessage = "Paste a valid Xtream M3U or player_api URL with username and password."
-      showErrorMessage = true
-      return false
-    }
-
-    playlistURL = trimmedPlaylistURL
-    apiHost = credentials.host
-    apiLogin = credentials.username
-    apiPassword = credentials.password
-    return true
-  }
-
-  private func parseXtreamURL(_ value: String) -> XtreamCredentials? {
-    let normalizedValue = value.contains("://") ? value : "http://\(value)"
-    guard let components = URLComponents(string: normalizedValue),
-          let scheme = components.scheme,
-          let host = components.host
-    else {
-      return nil
-    }
-
-    let port = components.port.map { ":\($0)" } ?? ""
-    let serverURL = "\(scheme)://\(host)\(port)"
-    var username = queryValue(named: "username", in: components) ?? queryValue(named: "user", in: components) ?? ""
-    var password = queryValue(named: "password", in: components) ?? queryValue(named: "pass", in: components) ?? ""
-
-    if username.isEmpty || password.isEmpty {
-      let pathParts = components.path
-        .split(separator: "/")
-        .map(String.init)
-
-      if pathParts.count >= 3, ["live", "movie", "series"].contains(pathParts[0].lowercased()) {
-        username = pathParts[1]
-        password = pathParts[2]
-      } else if pathParts.count >= 2, !pathParts[0].hasSuffix(".php") {
-        username = pathParts[0]
-        password = pathParts[1]
-      }
-    }
-
-    guard !username.isEmpty, !password.isEmpty else {
-      return nil
-    }
-
-    return XtreamCredentials(host: serverURL, username: username, password: password)
-  }
-
-  private func loadFullPlaylist() async throws {
-    await updateLoadStatus("Checking playlist...")
-
-    let liveCategories = try await fetchCategories(action: "get_live_categories")
-    let movieCategories = try await fetchCategories(action: "get_vod_categories")
-    let seriesCategories = try await fetchCategories(action: "get_series_categories")
-
-    await MainActor.run {
-      clearCachedLibrary()
-    }
-
-    await updateLoadStatus("Loading Live...")
-    await CacheManager.shared.cacheCategories(liveCategories, for: KindMedia.live.rawValue)
-    for category in liveCategories {
-      let streams = try await fetchStreams(action: "get_live_streams", categoryId: category.id)
-      CacheManager.shared.cacheStreams(streams, for: KindMedia.live.rawValue)
-    }
-
-    await updateLoadStatus("Loading Movies...")
-    await CacheManager.shared.cacheCategories(movieCategories, for: KindMedia.vod.rawValue)
-    for category in movieCategories {
-      let streams = try await fetchStreams(action: "get_vod_streams", categoryId: category.id)
-      CacheManager.shared.cacheStreams(streams, for: KindMedia.vod.rawValue)
-    }
-
-    await updateLoadStatus("Loading Shows...")
-    await CacheManager.shared.cacheCategories(seriesCategories, for: KindMedia.series.rawValue)
-    for category in seriesCategories {
-      let series = try await fetchSeries(categoryId: category.id)
-      CacheManager.shared.cacheSeries(series, for: KindMedia.series.rawValue)
-    }
-  }
-
-  @MainActor
-  private func updateLoadStatus(_ value: String) {
-    loadStatus = value
-  }
-
-  private func fetchCategories(action: String) async throws -> [IPTVModels.Category] {
-    guard let url = URL(string: "\(APIManager.shared.baseURL)&action=\(action)") else {
-      throw PlaylistLoadError.invalidURL
-    }
-
-    return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[IPTVModels.Category], Error>) in
-      APIManager.shared.fetchCategories(from: url) { result in
-        continuation.resume(with: result)
-      }
-    }
-  }
-
-  private func fetchStreams(action: String, categoryId: String) async throws -> [IPTVModels.Stream] {
-    let apiURL = "\(APIManager.shared.baseURL)&action=\(action)&category_id=\(categoryId)"
-
-    return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[IPTVModels.Stream], Error>) in
-      APIManager.shared.fetchStreams(for: apiURL) { result in
-        continuation.resume(with: result)
-      }
-    }
-  }
-
-  private func fetchSeries(categoryId: String) async throws -> [IPTVModels.Series] {
-    let apiURL = "\(APIManager.shared.baseURL)&action=get_series&category_id=\(categoryId)"
-
-    return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[IPTVModels.Series], Error>) in
-      APIManager.shared.fetchSeries(for: apiURL) { result in
-        continuation.resume(with: result)
-      }
-    }
-  }
-
-  private func clearCachedLibrary() {
-    let realm = try! Realm()
-    do {
-      try realm.write {
-        realm.delete(realm.objects(CategoryEntity.self))
-        realm.delete(realm.objects(CachedStream.self))
-        realm.delete(realm.objects(CachedSeries.self))
-      }
-    } catch {
-      print("Error clearing library: \(error)")
-    }
-  }
-
-  private func normalizedServerURL(_ value: String) -> String {
-    var normalizedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
-    if !normalizedValue.contains("://") {
-      normalizedValue = "http://\(normalizedValue)"
-    }
-
-    while normalizedValue.hasSuffix("/") {
-      normalizedValue.removeLast()
-    }
-
-    return normalizedValue
-  }
-
-  private func queryValue(named name: String, in components: URLComponents) -> String? {
-    components.queryItems?
-      .first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?
-      .value
-  }
-
-  private struct XtreamCredentials {
-    let host: String
-    let username: String
-    let password: String
-  }
-
-  private enum PlaylistLoadError: LocalizedError {
-    case invalidURL
-
-    var errorDescription: String? {
-      "The Xtream server URL is not valid."
+      .preferredColorScheme(.dark)
     }
   }
 }

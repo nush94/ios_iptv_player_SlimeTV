@@ -38,14 +38,18 @@ public struct SerieShelf: View {
       .sorted(by: \.lastModified, ascending: false)
   }
 
+  private var displayStreams: [CachedSeries] {
+    Array(filteredStreams.prefix(50))
+  }
+
   public var body: some View {
     Group {
-      if filteredStreams.count > 0 {
+      if !displayStreams.isEmpty {
         VStack {
           sectionHeader()
           ScrollView(.horizontal) {
             LazyHStack(spacing: 16) {
-              ForEach(filteredStreams) { serie in
+              ForEach(displayStreams) { serie in
                 customButton(serie)
               }
             }
@@ -66,7 +70,7 @@ public struct SerieShelf: View {
       openStream(serie)
     }, longPressAction: {
       Task {
-        await addFavori(serie: serie)
+        await toggleFavori(serie: serie)
       }
     }) {
       ZStack(alignment: .bottom) {
@@ -86,6 +90,17 @@ public struct SerieShelf: View {
       }
       .aspectRatio(ratio, contentMode: .fit)
       .containerRelativeFrame(.horizontal, count: column, spacing: 40)
+    }
+    .contextMenu {
+      let favorited = isFavorited(serie)
+      Button(role: favorited ? .destructive : nil) {
+        Task { await toggleFavori(serie: serie) }
+      } label: {
+        Label(
+          favorited ? "Remove from Favorites" : "Add to Favorites",
+          systemImage: favorited ? "star.slash" : "star"
+        )
+      }
     }
 #if TARGET_OS_TV
     .prefersDefaultFocus(in: mainNamespace)
@@ -113,22 +128,34 @@ public struct SerieShelf: View {
       .containerRelativeFrame(.horizontal, count: column, spacing: 40)
   }
 
+  private func isFavorited(_ serie: CachedSeries) -> Bool {
+    guard let realm = try? Realm() else { return false }
+    return !realm.objects(FavoriEntity.self)
+      .where { $0.id == serie.id && $0.kind == kindMedia.rawValue }
+      .isEmpty
+  }
+
   @MainActor
-  private func addFavori(serie: CachedSeries) async {
+  private func toggleFavori(serie: CachedSeries) async {
     do {
       let realm = try await Realm()
+      let existing = realm.objects(FavoriEntity.self)
+        .where { $0.id == serie.id && $0.kind == kindMedia.rawValue }
       try realm.write {
-        let favori = FavoriEntity(
-          id: serie.id,
-          kind: kindMedia.rawValue,
-          name: serie.name,
-          streamIcon: serie.cover,
-          added: Date(),
-          tmdb: serie.tmdb
-        )
-        realm.add(favori)
+        if existing.isEmpty {
+          realm.add(FavoriEntity(
+            id: serie.id,
+            kind: kindMedia.rawValue,
+            name: serie.name,
+            streamIcon: serie.cover,
+            added: Date(),
+            tmdb: serie.tmdb
+          ))
+        } else {
+          realm.delete(existing)
+        }
       }
-      addToFavori = true
+      addToFavori = existing.isEmpty
     } catch {
       print("Erreur lors de la sauvegarde dans SwiftData: \(error)")
     }

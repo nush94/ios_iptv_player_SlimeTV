@@ -56,7 +56,9 @@ class CacheManager: CacheManagerProtocol {
             desc: stream.description,
             tmdb: stream.tmdb?.value,
             year: stream.year,
-            containerExtension: stream.containerExtension
+            containerExtension: stream.containerExtension,
+            tvArchive: stream.tvArchive,
+            archiveDays: stream.archiveDays
           )
           realm.add(cachedStream, update: .modified)
         }

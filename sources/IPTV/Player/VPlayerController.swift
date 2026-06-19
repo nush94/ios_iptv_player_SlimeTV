@@ -5,6 +5,8 @@
 //  Created by Tarik ALAOUI on 10/11/2024.
 //
 
+import AVFoundation
+import AVKit
 import UIKit
 #if os(tvOS)
 import TVVLCKit
@@ -36,6 +38,9 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
   private let audioTrackButton = UIButton(type: .system)
   private let subtitlesButton = UIButton(type: .system)
   private let settingsButton = UIButton(type: .system)
+#if os(iOS)
+  private let airplayButton = AVRoutePickerView()
+#endif
 
   private let progressLabel = UILabel()
   private let progressSlider = UISlider()
@@ -61,12 +66,34 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
   private var currentVideoMode: VideoMode = .fit
   private var currentAspectRatioPointer: UnsafeMutablePointer<CChar>?
   private var isSeeking = false
+  private var resumeTimeMilliseconds: Int32?
+  private var didApplyResumeTime = false
+  var onPlaybackProgress: ((Int32, Int32) -> Void)?
 
   private var playerTimeChangedNotification: NSObjectProtocol?
   private var playerStateChangedNotification: NSObjectProtocol?
 
   private var retryCount = 0
   private let maxRetries = 5
+
+  // Source failover: ordered candidate URLs for the same channel/title.
+  private var mediaURLs: [URL] = []
+  private var currentSourceIndex = 0
+  private var sourceWatchdog: Timer?
+  private let sourceStartTimeout: TimeInterval = 12
+
+  private lazy var sourceStatusLabel: UILabel = {
+    let label = UILabel()
+    label.translatesAutoresizingMaskIntoConstraints = false
+    label.font = .systemFont(ofSize: 14, weight: .semibold)
+    label.textColor = .white
+    label.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+    label.textAlignment = .center
+    label.layer.cornerRadius = 16
+    label.clipsToBounds = true
+    label.alpha = 0
+    return label
+  }()
 
   private enum VideoMode: Equatable {
     case fit
@@ -89,6 +116,7 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
     super.viewDidLoad()
     view.layoutMargins = .zero
     view.backgroundColor = .black
+    configureAudioSession()
     DispatchQueue.main.async {
       self.setupBackground()
       self.setupPlayer()
@@ -110,24 +138,63 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
     playerTimeChangedNotification = NotificationCenter.default.addObserver(forName: Notification.Name(rawValue: VLCMediaPlayerTimeChanged), object: mediaPlayer, queue: nil, using: playerTimeChanged)
   }
 
-  func setupPlayer(with mediaURL: URL, id _: Int, kind _: KindMedia) {
-    let media = VLCMedia(url: mediaURL)
+  private func configureAudioSession() {
+    do {
+      try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+      try AVAudioSession.sharedInstance().setActive(true)
+    } catch {
+      print("Audio session setup failed: \(error)")
+    }
+  }
+
+  func setupPlayer(
+    with mediaURL: URL,
+    id _: Int,
+    kind _: KindMedia,
+    fallbackURLs: [URL] = [],
+    resumeTimeMilliseconds: Int32? = nil,
+    onPlaybackProgress: ((Int32, Int32) -> Void)? = nil
+  ) {
+    self.resumeTimeMilliseconds = resumeTimeMilliseconds
+    self.onPlaybackProgress = onPlaybackProgress
+
+    // Build the ordered candidate list (the tapped source first, then backups),
+    // de-duplicated while preserving order.
+    var ordered: [URL] = []
+    for url in [mediaURL] + fallbackURLs where !ordered.contains(url) {
+      ordered.append(url)
+    }
+    mediaURLs = ordered
+    currentSourceIndex = 0
+    retryCount = 0
+
+    playCurrentSource()
+  }
+
+  private func playCurrentSource() {
+    guard currentSourceIndex < mediaURLs.count else { return }
+    let url = mediaURLs[currentSourceIndex]
+
+    let media = VLCMedia(url: url)
     media.addOptions([
       "file-caching": "3000",
       "live-caching": "1000",
       "network-caching": "3000",
       "http-reconnect": "1",
       "rtsp-caching": "3000",
-
     ])
-    print(mediaURL)
-    DispatchQueue.main.async { [weak self] in
-      self?.mediaPlayer.media = media
-      self?.mediaPlayer.play()
-      self?.mediaPlayer.perform(Selector(("setTextRendererFontSize:")), with: Constants.fontSize)
-    }
+    print("Playing source \(currentSourceIndex + 1)/\(mediaURLs.count): \(url)")
 
-    // setupMediaCast(mediaURL: mediaURL, id: id, kind: kind)
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      self.mediaPlayer.media = media
+      self.mediaPlayer.play()
+      self.mediaPlayer.perform(Selector(("setTextRendererFontSize:")), with: Constants.fontSize)
+      self.startSourceWatchdog()
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+        self.applyResumeTimeIfNeeded()
+      }
+    }
   }
 
   func mediaPlayerStateChanged(_: Notification) {
@@ -135,39 +202,110 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
       guard let self else { return }
 
       switch mediaPlayer.state {
+      case .playing:
+        onSourcePlaying()
       case .stopped:
         print("Lecture arrêtée.")
       case .ended:
+        reportPlaybackEnded()
         print("Lecture terminée.")
       case .error:
-        print("Erreur détectée, tentative de relance...")
-        retryPlayback()
+        print("Erreur détectée, basculement de source...")
+        failover(reason: "error")
       default:
         break
       }
     }
   }
 
-  private func retryPlayback() {
+  // MARK: - Source failover
+
+  /// A source started playing successfully — clear watchdog/status and reset retries.
+  private func onSourcePlaying() {
+    cancelSourceWatchdog()
+    retryCount = 0
+    hideSourceStatus()
+  }
+
+  /// The current source failed (error or never started). Move to the next
+  /// candidate if one exists, otherwise retry the last one a few times.
+  private func failover(reason: String) {
+    cancelSourceWatchdog()
+
+    if currentSourceIndex + 1 < mediaURLs.count {
+      currentSourceIndex += 1
+      print("Failover (\(reason)) -> source \(currentSourceIndex + 1)/\(mediaURLs.count)")
+      showSourceStatus("Switching to source \(currentSourceIndex + 1)…")
+      mediaPlayer.stop()
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+        self?.playCurrentSource()
+      }
+      return
+    }
+
     guard retryCount < maxRetries else {
-      print("Nombre maximum de tentatives atteint.")
+      showSourceStatus("Stream unavailable", autoHide: false)
       return
     }
-
     retryCount += 1
-    guard let media = mediaPlayer.media else {
-      print("Aucun média disponible pour relancer la lecture.")
-      return
-    }
-
     mediaPlayer.stop()
     DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-      self?.mediaPlayer.media = media
-      self?.mediaPlayer.play()
+      self?.playCurrentSource()
     }
   }
 
-  override func viewWillDisappear(_: Bool) {
+  private func startSourceWatchdog() {
+    sourceWatchdog?.invalidate()
+    // Only watch for a stall if there is another source to fall back to.
+    guard currentSourceIndex + 1 < mediaURLs.count else { return }
+    sourceWatchdog = Timer.scheduledTimer(withTimeInterval: sourceStartTimeout, repeats: false) { [weak self] _ in
+      guard let self else { return }
+      if self.mediaPlayer.state != .playing {
+        self.failover(reason: "timeout")
+      }
+    }
+  }
+
+  private func cancelSourceWatchdog() {
+    sourceWatchdog?.invalidate()
+    sourceWatchdog = nil
+  }
+
+  private func showSourceStatus(_ text: String, autoHide: Bool = true) {
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      if self.sourceStatusLabel.superview == nil {
+        self.view.addSubview(self.sourceStatusLabel)
+        NSLayoutConstraint.activate([
+          self.sourceStatusLabel.centerXAnchor.constraint(equalTo: self.view.centerXAnchor),
+          self.sourceStatusLabel.topAnchor.constraint(equalTo: self.view.safeAreaLayoutGuide.topAnchor, constant: 16),
+          self.sourceStatusLabel.heightAnchor.constraint(equalToConstant: 32),
+        ])
+      }
+      self.sourceStatusLabel.text = "   \(text)   "
+      self.view.bringSubviewToFront(self.sourceStatusLabel)
+      UIView.animate(withDuration: 0.2) { self.sourceStatusLabel.alpha = 1 }
+      if autoHide {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+          self?.hideSourceStatus()
+        }
+      }
+    }
+  }
+
+  private func hideSourceStatus() {
+    UIView.animate(withDuration: 0.25) { [weak self] in
+      self?.sourceStatusLabel.alpha = 0
+    }
+  }
+
+  override func viewWillDisappear(_ animated: Bool) {
+    super.viewWillDisappear(animated)
+    reportPlaybackProgress()
+    mediaPlayer.stop()
+    mediaPlayer.media = nil
+    mediaPlayer.drawable = nil
+    cancelSourceWatchdog()
     unregisterObservers()
   }
 
@@ -185,6 +323,7 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
     videoLength = length.intValue
     videoLengthString = length.stringValue
     DispatchQueue.main.async { [weak self] in
+      self?.applyResumeTimeIfNeeded()
       self?.updateProgressSlider()
     }
   }
@@ -196,6 +335,7 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
 
     DispatchQueue.main.async { [weak self] in
       self?.progressLabel.text = String(format: "%@ / %@", self?.currentTimeString ?? "00:00", self?.videoLengthString ?? "00:00")
+      self?.applyResumeTimeIfNeeded()
       self?.updateProgressSlider()
     }
   }
@@ -301,6 +441,16 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
     castButton.frame = CGRectMake(0, 0, 24, 24)
     castButton.tintColor = UIColor.gray
 #endif
+#if os(iOS)
+    airplayButton.tintColor = .white
+    airplayButton.activeTintColor = .systemRed
+    airplayButton.prioritizesVideoDevices = true
+    airplayButton.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      airplayButton.widthAnchor.constraint(equalToConstant: 30),
+      airplayButton.heightAnchor.constraint(equalToConstant: 30),
+    ])
+#endif
     progressLabel.textAlignment = .center
     progressLabel.text = String(format: "%@ / %@", currentTimeString, videoLengthString)
     progressLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 18, weight: .medium)
@@ -328,9 +478,9 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
     let spacer = UIView()
 
 #if os(iOS) && canImport(GoogleCast)
-    let stopStack = UIStackView(arrangedSubviews: [closeButton, progressLabel, spacer, settingsButton, castButton])
+    let stopStack = UIStackView(arrangedSubviews: [closeButton, progressLabel, spacer, airplayButton, settingsButton, castButton])
 #elseif os(iOS)
-    let stopStack = UIStackView(arrangedSubviews: [closeButton, progressLabel, spacer, settingsButton])
+    let stopStack = UIStackView(arrangedSubviews: [closeButton, progressLabel, spacer, airplayButton, settingsButton])
 #endif
 #if os(tvOS)
     let stopStack = UIStackView(arrangedSubviews: [closeButton, progressLabel, spacer, settingsButton])
@@ -537,6 +687,7 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
 
   @objc
   private func closeView() {
+    reportPlaybackProgress()
     if mediaPlayer.isPlaying {
       mediaPlayer.stop()
     }
@@ -690,6 +841,36 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
   private var seekableLength: Int32? {
     let length = max(videoLength, mediaPlayer.media?.length.intValue ?? 0)
     return length > 0 ? length : nil
+  }
+
+  private func applyResumeTimeIfNeeded() {
+    guard !didApplyResumeTime,
+          let resumeTimeMilliseconds,
+          let length = seekableLength,
+          resumeTimeMilliseconds > 5_000,
+          resumeTimeMilliseconds < length - 10_000 else { return }
+
+    mediaPlayer.time = VLCTime(int: resumeTimeMilliseconds)
+    videoCurrentTime = resumeTimeMilliseconds
+    didApplyResumeTime = true
+    updateProgressSlider()
+  }
+
+  private func reportPlaybackProgress() {
+    let duration = max(videoLength, mediaPlayer.media?.length.intValue ?? 0)
+    let progress = max(mediaPlayer.time.intValue, videoCurrentTime)
+    guard progress > 0, duration > 0 else { return }
+    onPlaybackProgress?(progress, duration)
+  }
+
+  private func reportPlaybackEnded() {
+    let duration = max(videoLength, mediaPlayer.media?.length.intValue ?? 0)
+    guard duration > 0 else {
+      reportPlaybackProgress()
+      return
+    }
+
+    onPlaybackProgress?(duration, duration)
   }
 
   private func resetHideControlsTimer() {

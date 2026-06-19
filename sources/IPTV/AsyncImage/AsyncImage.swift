@@ -25,7 +25,7 @@ public struct AsyncImage<Content: View, Placeholder: View>: View {
     self.content = content
     _loader = StateObject(
       wrappedValue: ImageLoader(
-        cache: TemporaryFileImageCache.shared
+        cache: TemporaryImageCache.shared
       )
     )
   }
@@ -36,7 +36,7 @@ public struct AsyncImage<Content: View, Placeholder: View>: View {
     self.content = { $0 }
     _loader = StateObject(
       wrappedValue: ImageLoader(
-        cache: TemporaryFileImageCache.shared
+        cache: TemporaryImageCache.shared
       )
     )
   }

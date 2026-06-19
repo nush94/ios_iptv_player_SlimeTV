@@ -13,6 +13,7 @@ struct FeaturedMovieHeroView: View {
 
   @Environment(\.verticalSizeClass) private var verticalSizeClass
   @ObservedResults(FavoriEntity.self) private var favorites
+  @State private var showInfo = false
 
   private var isCompactHeight: Bool { verticalSizeClass == .compact }
   private var heroHeight: CGFloat { isCompactHeight ? 300 : 500 }
@@ -116,7 +117,11 @@ struct FeaturedMovieHeroView: View {
             .disabled(movie == nil)
             .opacity(movie == nil ? 0.45 : 1)
 
-            heroIconButton(title: "Info", systemImage: "info.circle", action: {})
+            heroIconButton(title: "Info", systemImage: "info.circle", action: {
+              if movie != nil { showInfo = true }
+            })
+            .disabled(movie == nil)
+            .opacity(movie == nil ? 0.45 : 1)
           }
           .frame(width: max(proxy.size.width - 40, 1))
 
@@ -133,6 +138,11 @@ struct FeaturedMovieHeroView: View {
     .frame(height: heroHeight)
     .frame(maxWidth: .infinity)
     .clipShape(RoundedRectangle(cornerRadius: 0))
+    .sheet(isPresented: $showInfo) {
+      if let movie {
+        MovieInfoView(movie: movie)
+      }
+    }
   }
 
   @ViewBuilder

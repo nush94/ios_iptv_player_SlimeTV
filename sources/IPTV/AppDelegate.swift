@@ -6,11 +6,20 @@
 //
 #if os(iOS)
 import Foundation
+import RealmSwift
 import UIKit
 
 #if canImport(GoogleCast)
 import GoogleCast
 #endif
+
+func configureRealmSchema() {
+  var config = Realm.Configuration.defaultConfiguration
+  // Bump when the Realm object schema changes. Additive changes (new optional
+  // properties like CachedStream.genre) need no migration body — just the bump.
+  config.schemaVersion = 5
+  Realm.Configuration.defaultConfiguration = config
+}
 
 class AppDelegate: UIResponder, UIApplicationDelegate {
 #if canImport(GoogleCast)
@@ -20,6 +29,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        configureRealmSchema()
         let criteria = GCKDiscoveryCriteria(applicationID: kReceiverAppID)
         let options = GCKCastOptions(discoveryCriteria: criteria)
         GCKCastContext.setSharedInstanceWith(options)
@@ -29,7 +39,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 #else
     func application(_: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-        true
+        configureRealmSchema()
+        return true
     }
 #endif
 }

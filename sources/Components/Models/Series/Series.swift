@@ -50,35 +50,44 @@ public struct Series: Identifiable, Decodable {
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    self.id = try container.decode(Int.self, forKey: .seriesID)
-    self.name = try container.decode(String.self, forKey: .name)
-    self.seriesID = try container.decode(Int.self, forKey: .id)
-    self.cover = try? container.decode(String.self, forKey: .cover)
-    self.plot = try? container.decode(String.self, forKey: .plot)
-    self.cast = try? container.decode(String.self, forKey: .cast)
-    self.director = try? container.decode(String.self, forKey: .director)
-    self.genre = try? container.decode(String.self, forKey: .genre)
-    self.releaseDate = try? container.decode(String.self, forKey: .releaseDate)
+    let decodedSeriesID = container.decodeFlexibleInt(forKey: .seriesID)
+      ?? container.decodeFlexibleInt(forKey: .id)
+    let decodedNumber = container.decodeFlexibleInt(forKey: .id) ?? decodedSeriesID
 
-    let lastModifiedTimestamp = try container.decode(String.self, forKey: .lastModified)
-    if let timestamp = Double(lastModifiedTimestamp) {
-      self.lastModified = Date(timeIntervalSince1970: timestamp)
-    } else {
+    guard let decodedSeriesID,
+          let decodedName = container.decodeFlexibleString(forKey: .name)
+    else {
       throw DecodingError.dataCorruptedError(
-        forKey: .lastModified,
+        forKey: .seriesID,
         in: container,
-        debugDescription: "Invalid timestamp for lastModified"
+        debugDescription: "Series is missing a usable series_id or name"
       )
     }
 
-    self.rating = try? container.decode(Double.self, forKey: .rating)
-    self.rating5Based = try? container.decode(Double.self, forKey: .rating5Based)
-    self.backdropPaths = [] // try container.decodeIfPresent([String].self, forKey: .backdropPaths) ?? []
-    self.youtubeTrailer = try? container.decode(String.self, forKey: .youtubeTrailer)
-    self.tmdb = try? container.decode(String.self, forKey: .tmdb)
-    self.episodeRunTime = 0 // try? container.decode(Int.self, forKey: .episodeRunTime)
-    self.categoryID = try container.decode(String.self, forKey: .categoryID)
-    self.categoryIDs = [] // try container.decodeIfPresent([Int].self, forKey: .categoryIDs) ?? []
+    self.id = decodedSeriesID
+    self.name = decodedName
+    self.seriesID = decodedNumber ?? decodedSeriesID
+    self.cover = container.decodeFlexibleString(forKey: .cover)
+    self.plot = container.decodeFlexibleString(forKey: .plot)
+    self.cast = container.decodeFlexibleString(forKey: .cast)
+    self.director = container.decodeFlexibleString(forKey: .director)
+    self.genre = container.decodeFlexibleString(forKey: .genre)
+    self.releaseDate = container.decodeFlexibleString(forKey: .releaseDate)
+
+    if let timestamp = container.decodeFlexibleDouble(forKey: .lastModified) {
+      self.lastModified = Date(timeIntervalSince1970: timestamp)
+    } else {
+      self.lastModified = .distantPast
+    }
+
+    self.rating = container.decodeFlexibleDouble(forKey: .rating)
+    self.rating5Based = container.decodeFlexibleDouble(forKey: .rating5Based)
+    self.backdropPaths = (try? container.decodeIfPresent([String].self, forKey: .backdropPaths)) ?? []
+    self.youtubeTrailer = container.decodeFlexibleString(forKey: .youtubeTrailer)
+    self.tmdb = container.decodeFlexibleString(forKey: .tmdb)
+    self.episodeRunTime = container.decodeFlexibleInt(forKey: .episodeRunTime)
+    self.categoryID = container.decodeFlexibleString(forKey: .categoryID) ?? ""
+    self.categoryIDs = (try? container.decodeIfPresent([Int].self, forKey: .categoryIDs)) ?? []
   }
 
   public init(id: Int, name: String, seriesID: Int, cover: String? = nil, plot: String? = nil, cast: String? = nil, director: String? = nil, genre: String? = nil, releaseDate: String? = nil, lastModified: Date, rating: Double? = nil, rating5Based: Double? = nil, backdropPaths: [String], youtubeTrailer: String? = nil, tmdb: String, episodeRunTime: Int, categoryID: String, categoryIDs: [Int]) {
@@ -158,7 +167,7 @@ public struct SeriesInfo: Decodable {
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     self.name = try container.decode(String.self, forKey: .name)
-    self.cover = try container.decode(String.self, forKey: .cover)
+    self.cover = container.decodeFlexibleString(forKey: .cover) ?? ""
     self.plot = try container.decodeIfPresent(String.self, forKey: .plot)
     self.cast = try container.decodeIfPresent(String.self, forKey: .cast)
     self.director = try container.decodeIfPresent(String.self, forKey: .director)
@@ -175,8 +184,8 @@ public struct SeriesInfo: Decodable {
     }
     self.rating = try? container.decodeIfPresent(FlexibleString.self, forKey: .rating)
     self.rating5Based = try? container.decodeIfPresent(FlexibleString.self, forKey: .rating5Based)
-    self.tmdb = try container.decode(String.self, forKey: .tmdb)
-    self.backdropPaths = try container.decodeIfPresent([String].self, forKey: .backdropPaths) ?? []
+    self.tmdb = container.decodeFlexibleString(forKey: .tmdb) ?? ""
+    self.backdropPaths = (try? container.decodeIfPresent([String].self, forKey: .backdropPaths)) ?? []
     self.youtubeTrailer = try container.decodeIfPresent(String.self, forKey: .youtubeTrailer)
   }
 
@@ -232,17 +241,49 @@ public struct Episode: Decodable {
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    self.id = try container.decode(String.self, forKey: .id)
-    self.episodeNum = try container.decode(Int.self, forKey: .episodeNum)
-    self.title = try container.decode(String.self, forKey: .title)
-    self.containerExtension = try container.decodeIfPresent(String.self, forKey: .containerExtension)
-    if let addedTimestamp = try container.decodeIfPresent(String.self, forKey: .added) {
-      self.added = Date(timeIntervalSince1970: TimeInterval(addedTimestamp) ?? 0)
+    let decodedEpisodeNum = container.decodeFlexibleInt(forKey: .episodeNum) ?? 0
+
+    self.id = container.decodeFlexibleString(forKey: .id) ?? UUID().uuidString
+    self.episodeNum = decodedEpisodeNum
+    self.title = container.decodeFlexibleString(forKey: .title) ?? "Episode \(max(decodedEpisodeNum, 1))"
+    self.containerExtension = container.decodeFlexibleString(forKey: .containerExtension)
+    if let addedTimestamp = container.decodeFlexibleDouble(forKey: .added) {
+      self.added = Date(timeIntervalSince1970: addedTimestamp)
     } else {
       self.added = nil
     }
-    self.season = try container.decode(Int.self, forKey: .season)
+    self.season = container.decodeFlexibleInt(forKey: .season) ?? 0
     self.info = try? container.decodeIfPresent(EpisodeInfo.self, forKey: .info)
+  }
+
+  public init(
+    id: String,
+    episodeNum: Int,
+    title: String,
+    containerExtension: String?,
+    added: Date?,
+    season: Int,
+    info: EpisodeInfo?
+  ) {
+    self.id = id
+    self.episodeNum = episodeNum
+    self.title = title
+    self.containerExtension = containerExtension
+    self.added = added
+    self.season = season
+    self.info = info
+  }
+
+  public func withFallbacks(season fallbackSeason: Int, episodeNumber fallbackEpisodeNumber: Int) -> Episode {
+    Episode(
+      id: id,
+      episodeNum: episodeNum > 0 ? episodeNum : fallbackEpisodeNumber,
+      title: title,
+      containerExtension: containerExtension,
+      added: added,
+      season: season > 0 ? season : fallbackSeason,
+      info: info
+    )
   }
 }
 
@@ -274,16 +315,16 @@ public struct Season: Decodable {
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    self.name = try container.decode(String.self, forKey: .name)
+    self.name = container.decodeFlexibleString(forKey: .name) ?? ""
     self.episodeCount = try? container.decodeIfPresent(FlexibleString.self, forKey: .episodeCount)
     self.overview = try container.decodeIfPresent(String.self, forKey: .overview)
     self.airDate = try container.decodeIfPresent(String.self, forKey: .airDate)
-    self.cover = try container.decode(String.self, forKey: .cover)
-    self.coverTMDB = try container.decode(String.self, forKey: .coverTMDB)
-    self.seasonNumber = try container.decodeIfPresent(Int.self, forKey: .seasonNumber) ?? 0
-    self.coverBig = try container.decode(String.self, forKey: .coverBig)
-    self.releaseDate = try container.decodeIfPresent(String.self, forKey: .releaseDate)
-    self.duration = try container.decodeIfPresent(String.self, forKey: .duration)
+    self.cover = container.decodeFlexibleString(forKey: .cover) ?? ""
+    self.coverTMDB = container.decodeFlexibleString(forKey: .coverTMDB) ?? ""
+    self.seasonNumber = container.decodeFlexibleInt(forKey: .seasonNumber) ?? 0
+    self.coverBig = container.decodeFlexibleString(forKey: .coverBig) ?? ""
+    self.releaseDate = container.decodeFlexibleString(forKey: .releaseDate)
+    self.duration = container.decodeFlexibleString(forKey: .duration)
   }
 }
 
@@ -301,14 +342,151 @@ public struct SeriesDetail: Decodable {
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    self.info = try container.decode(SeriesInfo.self, forKey: .info)
-    self.seasons = try container.decodeIfPresent([Season].self, forKey: .seasons) ?? []
-    self.episodes = try? container.decodeIfPresent([String: [Episode]].self, forKey: .episodes)
+    self.info = (try? container.decode(SeriesInfo.self, forKey: .info)) ?? SeriesInfo(
+      name: "",
+      cover: "",
+      tmdb: "",
+      backdropPaths: []
+    )
+    if let seasonValues = try? container.decodeIfPresent([FailableDecodable<Season>].self, forKey: .seasons) {
+      self.seasons = seasonValues.compactMap(\.value)
+    } else {
+      self.seasons = []
+    }
+    self.episodes = Self.decodeEpisodes(from: container)
   }
 
   public init(info: SeriesInfo, seasons: [Season], episodes: [String: [Episode]]?) {
     self.info = info
     self.seasons = seasons
     self.episodes = episodes
+  }
+
+  private static func decodeEpisodes(from container: KeyedDecodingContainer<CodingKeys>) -> [String: [Episode]]? {
+    if let groupedEpisodes = decodeGroupedEpisodes(from: container) {
+      return groupedEpisodes
+    }
+
+    if let flatEpisodes = try? container.decodeIfPresent([FailableDecodable<Episode>].self, forKey: .episodes) {
+      var decoded: [String: [Episode]] = [:]
+      for (index, value) in flatEpisodes.enumerated() {
+        guard let episode = value.value else { continue }
+        let fallbackSeason = episode.season > 0 ? episode.season : 1
+        let normalized = episode.withFallbacks(season: fallbackSeason, episodeNumber: index + 1)
+        decoded[String(normalized.season), default: []].append(normalized)
+      }
+      return decoded.isEmpty ? nil : decoded
+    }
+
+    return nil
+  }
+
+  private static func decodeGroupedEpisodes(from container: KeyedDecodingContainer<CodingKeys>) -> [String: [Episode]]? {
+    guard let episodesContainer = try? container.nestedContainer(
+      keyedBy: DynamicCodingKey.self,
+      forKey: .episodes
+    ) else { return nil }
+
+    var decoded: [String: [Episode]] = [:]
+    let seasonKeys = episodesContainer.allKeys.sorted { lhs, rhs in
+      let lhsSeason = seasonNumber(from: lhs.stringValue) ?? Int.max
+      let rhsSeason = seasonNumber(from: rhs.stringValue) ?? Int.max
+      if lhsSeason == rhsSeason {
+        return lhs.stringValue < rhs.stringValue
+      }
+      return lhsSeason < rhsSeason
+    }
+
+    for (keyIndex, key) in seasonKeys.enumerated() {
+      guard let episodeValues = try? episodesContainer.decode(
+        [FailableDecodable<Episode>].self,
+        forKey: key
+      ) else { continue }
+
+      let fallbackSeason = seasonNumber(from: key.stringValue) ?? keyIndex + 1
+      let episodes = episodeValues.enumerated().compactMap { index, value in
+        value.value?.withFallbacks(season: fallbackSeason, episodeNumber: index + 1)
+      }
+
+      if !episodes.isEmpty {
+        decoded[String(fallbackSeason), default: []].append(contentsOf: episodes)
+      }
+    }
+
+    return decoded.isEmpty ? nil : decoded
+  }
+}
+
+private struct DynamicCodingKey: CodingKey {
+  let stringValue: String
+  let intValue: Int?
+
+  init?(stringValue: String) {
+    self.stringValue = stringValue
+    self.intValue = Int(stringValue)
+  }
+
+  init?(intValue: Int) {
+    self.stringValue = String(intValue)
+    self.intValue = intValue
+  }
+}
+
+private struct FailableDecodable<Value: Decodable>: Decodable {
+  let value: Value?
+
+  init(from decoder: Decoder) throws {
+    self.value = try? Value(from: decoder)
+  }
+}
+
+private func seasonNumber(from key: String) -> Int? {
+  if let value = Int(key), value > 0 {
+    return value
+  }
+
+  let digits = key.split { !$0.isNumber }.first.map(String.init)
+  guard let value = digits.flatMap(Int.init), value > 0 else { return nil }
+  return value
+}
+
+private extension KeyedDecodingContainer {
+  func decodeFlexibleString(forKey key: Key) -> String? {
+    if let value = try? decode(String.self, forKey: key) {
+      return value
+    }
+    if let value = try? decode(Int.self, forKey: key) {
+      return String(value)
+    }
+    if let value = try? decode(Double.self, forKey: key) {
+      return String(value)
+    }
+    return nil
+  }
+
+  func decodeFlexibleInt(forKey key: Key) -> Int? {
+    if let value = try? decode(Int.self, forKey: key) {
+      return value
+    }
+    if let value = try? decode(Double.self, forKey: key) {
+      return Int(value)
+    }
+    if let value = try? decode(String.self, forKey: key) {
+      return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+    return nil
+  }
+
+  func decodeFlexibleDouble(forKey key: Key) -> Double? {
+    if let value = try? decode(Double.self, forKey: key) {
+      return value
+    }
+    if let value = try? decode(Int.self, forKey: key) {
+      return Double(value)
+    }
+    if let value = try? decode(String.self, forKey: key) {
+      return Double(value.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+    return nil
   }
 }

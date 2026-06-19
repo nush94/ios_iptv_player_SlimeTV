@@ -26,9 +26,9 @@ public class CachedSeries: Object, ObjectKeyIdentifiable {
   @Persisted public var youtubeTrailer: String?
   @Persisted public var tmdb: String
   @Persisted public var episodeRunTime: Int
-  @Persisted public var categoryID: String
+  @Persisted(indexed: true) public var categoryID: String
   @Persisted public var categoryIDs: Data?
-  @Persisted public var section: String
+  @Persisted(indexed: true) public var section: String
   @Persisted public var isFavorite: Bool
 
   public var kindMedia: KindMedia {

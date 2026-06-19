@@ -22,6 +22,8 @@ struct SearchView: View {
   @State private var searchTask: Task<Void, Never>?
   @State private var showPlayer: Bool = false
   @State private var selectedStreamURL: URL? = nil
+  @State private var selectedKind: KindMedia = .vod
+  @State private var selectedPlaybackContext: PlaybackProgressContext?
 
   @State private var showSerieDetail: Bool = false
   @State private var selectedSerieId: Int? = nil
@@ -53,14 +55,15 @@ struct SearchView: View {
         LazyVStack(alignment: .trailing, spacing: 36) {
           if !filteredVods.isEmpty {
             MovieSearchShelf(streams: filteredVods, kindMedia: .vod) { stream in
-              selectedStreamURL = URL(string: stream.streamURL())
-              showPlayer = true
+              openMovie(stream)
             }
           }
 
           if !filteredLives.isEmpty {
             LiveSearchShelf(streams: filteredLives, kindMedia: .live) { stream in
               currentID = Int(stream.id)
+              selectedKind = .live
+              selectedPlaybackContext = nil
               selectedStreamURL = URL(string: stream.streamURL())
               showPlayer = true
             }
@@ -87,7 +90,12 @@ struct SearchView: View {
         showPlayer && selectedStreamURL != nil
       }, set: { showPlayer = $0 })) {
         if let streamURL = selectedStreamURL {
-          ViewPlayerContent(mediaURL: streamURL, id: currentID, kind: .vod)
+          ViewPlayerContent(
+            mediaURL: streamURL,
+            id: currentID,
+            kind: selectedKind,
+            playbackContext: selectedPlaybackContext
+          )
             .ignoresSafeArea()
         }
       }
@@ -105,6 +113,22 @@ struct SearchView: View {
   }
 
   @State private var currentID: Int = 9999
+
+  private func openMovie(_ stream: CachedStream) {
+    let streamURL = stream.streamURL()
+    currentID = stream.id
+    selectedKind = .vod
+    selectedStreamURL = URL(string: streamURL)
+    selectedPlaybackContext = PlaybackProgressContext(
+      mediaId: stream.id,
+      kind: .vod,
+      title: stream.name.formatted(),
+      subtitle: stream.year.flatMap { $0 > 0 ? String($0) : nil },
+      imageURL: stream.tmdbImage ?? stream.streamIcon,
+      streamURL: streamURL
+    )
+    showPlayer = true
+  }
 
   private func handleSearchDebounced(for text: String) {
     searchTask?.cancel()

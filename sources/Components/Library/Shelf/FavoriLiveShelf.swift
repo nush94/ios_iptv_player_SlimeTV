@@ -89,6 +89,13 @@ public struct FavoriLiveShelf: View {
       .aspectRatio(ratio, contentMode: .fit)
       .containerRelativeFrame(.horizontal, count: column, spacing: 40)
     }
+    .contextMenu {
+      Button(role: .destructive) {
+        removeStream(stream)
+      } label: {
+        Label("Remove from Favorites", systemImage: "star.slash")
+      }
+    }
 #if TARGET_OS_TV
     .prefersDefaultFocus(in: mainNamespace)
 #endif
@@ -98,7 +105,7 @@ public struct FavoriLiveShelf: View {
   @ViewBuilder
   private func sectionHeader() -> some View {
     HStack {
-      Text("Favorites")
+      Text("Live TV")
         .lineLimit(4)
         .multilineTextAlignment(.center)
         .font(.system(size: 23, weight: .bold))

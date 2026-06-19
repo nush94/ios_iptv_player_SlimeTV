@@ -167,6 +167,50 @@ class APIManager: APIManagerProtocol {
     operationQueue.addOperation(operation)
   }
 
+  /// Full EPG schedule (past + upcoming) for a channel, used for catch-up.
+  func fetchSimpleDataTable(streamId: Int, completion: @escaping (Result<ShortEPGResponse, Error>) -> Void) {
+    guard let url = URL(string: "\(baseURL)&action=get_simple_data_table&stream_id=\(streamId)") else {
+      completion(.failure(NSError(domain: "Invalid URL", code: -1, userInfo: nil)))
+      return
+    }
+
+    let operation = BlockOperation {
+      self.performRequest(url: url) { (result: Result<ShortEPGResponse, Error>) in
+        completion(result)
+      }
+    }
+    operationQueue.addOperation(operation)
+  }
+
+  /// Builds the catch-up / timeshift stream URL for a past program.
+  func timeshiftURL(streamId: Int, start: Date, durationMinutes: Int) -> URL? {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy-MM-dd:HH-mm"
+    formatter.timeZone = TimeZone(identifier: "UTC")
+    let stamp = formatter.string(from: start)
+    let minutes = max(1, durationMinutes)
+    return URL(string: "\(normalizedApiHost)/timeshift/\(apiLogin)/\(apiPassword)/\(minutes)/\(stamp)/\(streamId).ts")
+  }
+
+  func fetchVodInfo(streamId: Int) async throws -> VodInfo? {
+    guard let url = URL(string: "\(baseURL)&action=get_vod_info&vod_id=\(streamId)") else {
+      throw NSError(domain: "Invalid URL", code: -1, userInfo: nil)
+    }
+
+    let (data, _) = try await session.data(from: url)
+    guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+          var infoDict = json["info"] as? [String: Any]
+    else {
+      return nil
+    }
+
+    for key in ["youtube_trailer", "youtubeTrailer", "trailer"] where infoDict[key] == nil {
+      infoDict[key] = json[key]
+    }
+
+    return VodInfo(from: infoDict)
+  }
+
   func fetchData(from url: URL, completion: @escaping (Result<Data, Error>) -> Void) {
     let operation = BlockOperation {
       let task = self.session.dataTask(with: url) { data, response, error in

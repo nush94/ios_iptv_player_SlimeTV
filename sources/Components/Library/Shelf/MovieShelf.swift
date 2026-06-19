@@ -30,6 +30,10 @@ public struct MovieShelf: View {
       .sorted(by: \.year, ascending: false)
   }
 
+  private var displayStreams: [CachedStream] {
+    Array(filteredStreams.prefix(50))
+  }
+
   public init(category: CategoryEntity, kindMedia: KindMedia, openStream: @escaping (CachedStream) -> Void) {
     self.category = category
     self.kindMedia = kindMedia
@@ -37,22 +41,34 @@ public struct MovieShelf: View {
     self.categoryId = category.id
   }
 
+  private func isFavorited(_ stream: CachedStream) -> Bool {
+    guard let realm = try? Realm() else { return false }
+    return !realm.objects(FavoriEntity.self)
+      .where { $0.id == stream.id && $0.kind == kindMedia.rawValue }
+      .isEmpty
+  }
+
   @MainActor
-  private func addFavori(stream: CachedStream) async {
+  private func toggleFavori(stream: CachedStream) async {
     do {
       let realm = try await Realm()
+      let existing = realm.objects(FavoriEntity.self)
+        .where { $0.id == stream.id && $0.kind == kindMedia.rawValue }
       try realm.write {
-        let favori = FavoriEntity(
-          id: stream.id,
-          kind: kindMedia.rawValue,
-          name: stream.name,
-          streamIcon: stream.streamIcon,
-          added: Date(),
-          tmdb: stream.tmdb
-        )
-        realm.add(favori)
+        if existing.isEmpty {
+          realm.add(FavoriEntity(
+            id: stream.id,
+            kind: kindMedia.rawValue,
+            name: stream.name,
+            streamIcon: stream.streamIcon,
+            added: Date(),
+            tmdb: stream.tmdb
+          ))
+        } else {
+          realm.delete(existing)
+        }
       }
-      addToFavori = true
+      addToFavori = existing.isEmpty
     } catch {
       print("Erreur lors de la sauvegarde dans SwiftData: \(error)")
     }
@@ -60,12 +76,12 @@ public struct MovieShelf: View {
 
   public var body: some View {
     Group {
-      if filteredStreams.count > 0 {
+      if !displayStreams.isEmpty {
         VStack {
           sectionHeader()
           ScrollView(.horizontal) {
             LazyHStack(spacing: 16) {
-              ForEach(filteredStreams) { stream in
+              ForEach(displayStreams) { stream in
                 CustomButton(
                   action: {
                     DispatchQueue.main.async {
@@ -73,7 +89,7 @@ public struct MovieShelf: View {
                     }
                   }, longPressAction: {
                     Task {
-                      await addFavori(stream: stream)
+                      await toggleFavori(stream: stream)
                     }
                   }
                 ) {
@@ -94,6 +110,17 @@ public struct MovieShelf: View {
                   }
                   .aspectRatio(ratio, contentMode: .fit)
                   .containerRelativeFrame(.horizontal, count: column, spacing: 40)
+                }
+                .contextMenu {
+                  let favorited = isFavorited(stream)
+                  Button(role: favorited ? .destructive : nil) {
+                    Task { await toggleFavori(stream: stream) }
+                  } label: {
+                    Label(
+                      favorited ? "Remove from Favorites" : "Add to Favorites",
+                      systemImage: favorited ? "star.slash" : "star"
+                    )
+                  }
                 }
 #if TARGET_OS_TV
                 .prefersDefaultFocus(in: mainNamespace)
