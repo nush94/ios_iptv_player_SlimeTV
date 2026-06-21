@@ -30,7 +30,7 @@ enum PlaylistService {
   private static let loadConcurrency = 4
 
   @MainActor
-  static func loadFullPlaylist(progress: (String) -> Void) async throws {
+  static func loadFullPlaylist(progress: @MainActor @escaping (String) -> Void) async throws {
     progress("Checking playlist...")
 
     // These three must succeed (auth / connectivity). Everything below is
@@ -39,19 +39,34 @@ enum PlaylistService {
     let movieCategories = try await fetchCategories(action: "get_vod_categories")
     let seriesCategories = try await fetchCategories(action: "get_series_categories")
 
+    progress("Preparing library...")
     clearCachedLibrary()
 
-    // Live — one bulk call instead of one per category (793 → 1).
+    // Live — try one bulk call first (793 categories → 1 request), but fall back
+    // to category-by-category when it comes back empty. Without this, a single
+    // failed/timed-out bulk request leaves Live empty — and since the old library
+    // was already cleared above, the user loses all their channels on reload.
     await CacheManager.shared.cacheCategories(liveCategories, for: KindMedia.live.rawValue)
     progress("Loading Live…")
     let liveStreams = (try? await fetchAllStreams(action: "get_live_streams")) ?? []
-    await cacheStreamsChunked(liveStreams, section: .live, label: "Live", progress: progress)
+    if liveStreams.isEmpty {
+      await loadStreams(for: liveCategories, action: "get_live_streams", section: .live, label: "Live", progress: progress)
+    } else {
+      await cacheStreamsChunked(liveStreams, section: .live, label: "Live", progress: progress)
+    }
 
-    // Movies — per-category in parallel. The full catalog can be hundreds of
-    // thousands of items; decoding/storing it in per-category chunks avoids a
-    // single massive decode while still loading everything for the Home rails.
+    // Movies — try one bulk call first (1 request instead of one per category,
+    // which is what made big catalogs crawl: 359 categories = 359 round-trips).
+    // Some providers don't support bulk `get_vod_streams`, so fall back to
+    // category-by-category when the bulk call comes back empty.
     await CacheManager.shared.cacheCategories(movieCategories, for: KindMedia.vod.rawValue)
-    await loadStreams(for: movieCategories, action: "get_vod_streams", section: .vod, label: "Movies", progress: progress)
+    progress("Loading Movies…")
+    let allMovies = (try? await fetchAllStreams(action: "get_vod_streams")) ?? []
+    if allMovies.isEmpty {
+      await loadStreams(for: movieCategories, action: "get_vod_streams", section: .vod, label: "Movies", progress: progress)
+    } else {
+      await cacheStreamsChunked(allMovies, section: .vod, label: "Movies", progress: progress)
+    }
 
     // Shows — try one bulk call first. Some Xtream providers do not support
     // bulk `get_series`, so fall back to category-by-category when needed.
@@ -63,6 +78,17 @@ enum PlaylistService {
     } else {
       await cacheSeriesChunked(allSeries, progress: progress)
     }
+
+    progress("Preparing search...")
+    await Task.yield()
+
+    // Pre-warm the first screen's posters/genres in the background instead of
+    // blocking the import on ~90 get_vod_info calls. Cards also lazy-load their
+    // own artwork (MovieArtworkView), so anything not pre-warmed fills in on scroll.
+    MovieArtworkPreloader.preloadInBackground()
+
+    progress("Finalizing library...")
+    await Task.yield()
   }
 
   @MainActor
@@ -75,10 +101,9 @@ enum PlaylistService {
     guard !streams.isEmpty else { return }
     var done = 0
     for chunk in streams.chunked(into: 1000) {
-      CacheManager.shared.cacheStreams(chunk, for: section.rawValue)
+      await CacheManager.shared.cacheStreamsInBackground(chunk, for: section.rawValue)
       done += chunk.count
       progress("Loading \(label)… \(done.formatted())/\(streams.count.formatted())")
-      await Task.yield()
     }
   }
 
@@ -87,10 +112,9 @@ enum PlaylistService {
     guard !series.isEmpty else { return }
     var done = 0
     for chunk in series.chunked(into: 1000) {
-      CacheManager.shared.cacheSeries(chunk, for: KindMedia.series.rawValue)
+      await CacheManager.shared.cacheSeriesInBackground(chunk, for: KindMedia.series.rawValue)
       done += chunk.count
       progress("Loading Shows… \(done.formatted())/\(series.count.formatted())")
-      await Task.yield()
     }
   }
 
@@ -119,8 +143,7 @@ enum PlaylistService {
       }
 
       for streams in batches where !streams.isEmpty {
-        CacheManager.shared.cacheStreams(streams, for: section.rawValue)
-        await Task.yield()
+        await CacheManager.shared.cacheStreamsInBackground(streams, for: section.rawValue)
       }
 
       done += chunk.count
@@ -145,8 +168,7 @@ enum PlaylistService {
       }
 
       for series in batches where !series.isEmpty {
-        CacheManager.shared.cacheSeries(series, for: KindMedia.series.rawValue)
-        await Task.yield()
+        await CacheManager.shared.cacheSeriesInBackground(series, for: KindMedia.series.rawValue)
       }
 
       done += chunk.count

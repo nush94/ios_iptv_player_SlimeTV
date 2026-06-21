@@ -6,6 +6,7 @@
 //
 
 import IPTVModels
+import Foundation
 import RealmSwift
 import SwiftUI
 
@@ -66,6 +67,18 @@ struct SeriesRailShelf: View {
           RoundedRectangle(cornerRadius: 10, style: .continuous)
             .stroke(.white.opacity(0.08), lineWidth: 1)
         }
+        .overlay(alignment: .topLeading) {
+          if let rating = ratingText(serie) {
+            metadataBadge(systemImage: "star.fill", text: rating)
+              .padding(6)
+          }
+        }
+        .overlay(alignment: .topTrailing) {
+          if let year = yearText(serie) {
+            metadataBadge(systemImage: nil, text: year)
+              .padding(6)
+          }
+        }
 
       Text(serie.name.formatted())
         .font(.system(size: 12, weight: .medium))
@@ -96,6 +109,39 @@ struct SeriesRailShelf: View {
         .font(.system(size: 22, weight: .semibold))
         .foregroundStyle(.white.opacity(0.45))
     }
+  }
+
+  private func ratingText(_ serie: CachedSeries) -> String? {
+    let rating = serie.rating ?? serie.rating5Based ?? 0
+    guard rating > 0 else { return nil }
+    return String(format: "%.1f", rating)
+  }
+
+  private func yearText(_ serie: CachedSeries) -> String? {
+    if let year = StreamYearExtractor.year(from: serie.releaseDate) {
+      return "\(year)"
+    }
+    if let year = StreamYearExtractor.year(from: serie.name) {
+      return "\(year)"
+    }
+
+    let year = Calendar.current.component(.year, from: serie.lastModified)
+    return year > 1900 ? "\(year)" : nil
+  }
+
+  private func metadataBadge(systemImage: String?, text: String) -> some View {
+    HStack(spacing: 3) {
+      if let systemImage {
+        Image(systemName: systemImage)
+          .font(.system(size: 8, weight: .black))
+      }
+      Text(text)
+        .font(.system(size: 9, weight: .heavy))
+    }
+    .foregroundStyle(.white)
+    .padding(.horizontal, 6)
+    .frame(height: 18)
+    .background(.black.opacity(0.64), in: Capsule())
   }
 
   private func isFavorited(_ serie: CachedSeries) -> Bool {

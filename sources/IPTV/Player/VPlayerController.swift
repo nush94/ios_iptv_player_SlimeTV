@@ -67,7 +67,10 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
   private var currentAspectRatioPointer: UnsafeMutablePointer<CChar>?
   private var isSeeking = false
   private var resumeTimeMilliseconds: Int32?
+  /// When false (small inline preview), the transport control overlay is hidden.
+  var showsControls = true
   private var didApplyResumeTime = false
+  private var lastInlineVideoBounds: CGSize = .zero
   var onPlaybackProgress: ((Int32, Int32) -> Void)?
 
   private var playerTimeChangedNotification: NSObjectProtocol?
@@ -138,6 +141,16 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
     playerTimeChangedNotification = NotificationCenter.default.addObserver(forName: Notification.Name(rawValue: VLCMediaPlayerTimeChanged), object: mediaPlayer, queue: nil, using: playerTimeChanged)
   }
 
+  override func viewDidLayoutSubviews() {
+    super.viewDidLayoutSubviews()
+
+    guard !showsControls else { return }
+    let bounds = videoContainerView.bounds.size
+    guard bounds.width > 0, bounds.height > 0, bounds != lastInlineVideoBounds else { return }
+    lastInlineVideoBounds = bounds
+    setVideoMode(.fill)
+  }
+
   private func configureAudioSession() {
     do {
       try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
@@ -152,9 +165,11 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
     id _: Int,
     kind _: KindMedia,
     fallbackURLs: [URL] = [],
+    showsControls: Bool = true,
     resumeTimeMilliseconds: Int32? = nil,
     onPlaybackProgress: ((Int32, Int32) -> Void)? = nil
   ) {
+    self.showsControls = showsControls
     self.resumeTimeMilliseconds = resumeTimeMilliseconds
     self.onPlaybackProgress = onPlaybackProgress
 
@@ -524,6 +539,12 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
     // Afficher les contrôles par défaut
     controlsContainerView.alpha = 1
     view.bringSubviewToFront(controlsContainerView)
+
+    // Chromeless inline preview: hide the whole transport overlay.
+    if !showsControls {
+      controlsContainerView.isHidden = true
+      controlsContainerView.isUserInteractionEnabled = false
+    }
   }
 
   private func configureGlassButton(
@@ -697,6 +718,7 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
   // MARK: - Show/Hide Controls
 
   private func showControls() {
+    guard showsControls else { return }
     controlsVisible = true
     UIView.animate(withDuration: 0.3) {
       self.controlsContainerView.alpha = 1
@@ -787,14 +809,14 @@ class VPlayerController: UIViewController, VLCMediaPlayerDelegate, ObservableObj
   @objc private func skipForward() {
     let currentTime = mediaPlayer.time.intValue
     guard let length = mediaPlayer.media?.length.intValue else { return }
-    let newTime = min(currentTime + 30000, length) // Skip forward by 10 seconds
+    let newTime = min(currentTime + 30000, length) // Skip forward by 30 seconds
     mediaPlayer.time = VLCTime(int: newTime)
     resetHideControlsTimer()
   }
 
   @objc private func skipBackward() {
     let currentTime = mediaPlayer.time.intValue
-    let newTime = max(currentTime - 30000, 0) // Skip backward by 10 seconds
+    let newTime = max(currentTime - 30000, 0) // Skip backward by 30 seconds
     mediaPlayer.time = VLCTime(int: newTime)
     resetHideControlsTimer()
   }

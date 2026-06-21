@@ -12,6 +12,9 @@ public class CachedSeries: Object, ObjectKeyIdentifiable {
   @Persisted public var _identifier: ObjectId
   @Persisted(primaryKey: true) public var id: Int
   @Persisted public var name: String
+  /// Normalized form of `name` (lowercased, no spaces/punctuation) for
+  /// space/punctuation-insensitive search. Populated in `init`.
+  @Persisted public var searchName: String
   @Persisted public var seriesID: Int
   @Persisted public var cover: String?
   @Persisted public var plot: String?
@@ -30,6 +33,11 @@ public class CachedSeries: Object, ObjectKeyIdentifiable {
   @Persisted public var categoryIDs: Data?
   @Persisted(indexed: true) public var section: String
   @Persisted public var isFavorite: Bool
+  /// Episode availability from `get_series_info`, filled lazily by
+  /// SeriesEpisodeEnricher or by opening the show. `episodesChecked == false`
+  /// means "not looked up yet" (shown optimistically until confirmed).
+  @Persisted public var episodesChecked: Bool
+  @Persisted public var episodeCount: Int
 
   public var kindMedia: KindMedia {
     KindMedia(rawValue: section) ?? .vod
@@ -39,6 +47,7 @@ public class CachedSeries: Object, ObjectKeyIdentifiable {
     self.init()
     self.id = serie.id
     self.name = serie.name
+    self.searchName = serie.name.normalizedForSearch
     self.seriesID = serie.seriesID
     self.cover = serie.cover
     self.plot = serie.plot

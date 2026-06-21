@@ -7,24 +7,39 @@ import IPTVModels
 import SwiftUI
 
 struct ContinueWatchingShelf: View {
+  enum Style: Equatable {
+    case standard
+    case compactHome
+  }
+
   let title: String
   let items: [CachedPlaybackProgress]
+  var style: Style = .standard
   let openItem: (CachedPlaybackProgress) -> Void
 
+  private var visibleItems: [CachedPlaybackProgress] {
+    switch style {
+    case .standard:
+      return items
+    case .compactHome:
+      return Array(items.prefix(6))
+    }
+  }
+
   var body: some View {
-    if !items.isEmpty {
-      VStack(alignment: .leading, spacing: 12) {
+    if !visibleItems.isEmpty {
+      VStack(alignment: .leading, spacing: style == .compactHome ? 10 : 12) {
         Text(title)
-          .font(.system(size: 23, weight: .bold))
+          .font(.system(size: style == .compactHome ? 22 : 23, weight: .bold))
           .foregroundStyle(.white)
 
         ScrollView(.horizontal, showsIndicators: false) {
-          LazyHStack(spacing: 14) {
-            ForEach(items) { item in
+          LazyHStack(spacing: style == .compactHome ? 12 : 14) {
+            ForEach(visibleItems) { item in
               Button {
                 openItem(item)
               } label: {
-                ContinueWatchingCard(item: item)
+                ContinueWatchingCard(item: item, style: style)
               }
               .buttonStyle(.plain)
             }
@@ -39,13 +54,21 @@ struct ContinueWatchingShelf: View {
 
 private struct ContinueWatchingCard: View {
   let item: CachedPlaybackProgress
+  let style: ContinueWatchingShelf.Style
 
   private var isSeries: Bool {
     item.kind == KindMedia.series.rawValue
   }
 
   private var cardSize: CGSize {
-    isSeries ? CGSize(width: 190, height: 108) : CGSize(width: 132, height: 198)
+    if style == .compactHome {
+      return CGSize(width: 154, height: 88)
+    }
+    return isSeries ? CGSize(width: 190, height: 108) : CGSize(width: 132, height: 198)
+  }
+
+  private var titleWidth: CGFloat {
+    style == .compactHome ? 154 : cardSize.width
   }
 
   var body: some View {
@@ -73,21 +96,21 @@ private struct ContinueWatchingCard: View {
       }
 
       Text(item.title)
-        .font(.system(size: 14, weight: .semibold))
+        .font(.system(size: style == .compactHome ? 13 : 14, weight: .semibold))
         .foregroundStyle(.white)
         .lineLimit(2)
         .multilineTextAlignment(.leading)
-        .frame(width: cardSize.width, alignment: .leading)
+        .frame(width: titleWidth, alignment: .leading)
 
-      if let subtitle = item.subtitle, !subtitle.isEmpty {
+      if style != .compactHome, let subtitle = item.subtitle, !subtitle.isEmpty {
         Text(subtitle)
           .font(.caption.weight(.medium))
           .foregroundStyle(.white.opacity(0.56))
           .lineLimit(1)
-          .frame(width: cardSize.width, alignment: .leading)
+          .frame(width: titleWidth, alignment: .leading)
       }
     }
-    .frame(width: cardSize.width, alignment: .leading)
+    .frame(width: titleWidth, alignment: .leading)
   }
 
   @ViewBuilder

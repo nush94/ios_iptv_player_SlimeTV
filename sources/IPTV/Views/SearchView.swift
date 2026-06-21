@@ -28,25 +28,29 @@ struct SearchView: View {
   @State private var showSerieDetail: Bool = false
   @State private var selectedSerieId: Int? = nil
 
+  private var emptyStreams: Results<CachedStream> {
+    streams.filter(NSPredicate(value: false))
+  }
+
   var filteredVods: Results<CachedStream> {
-    let searchWords = "*\(effectiveSearch.replacingOccurrences(of: " ", with: "*"))*"
-    return streams.where {
-      $0.section == KindMedia.vod.rawValue && $0.name.like(searchWords, caseInsensitive: true)
+    guard let predicate = SearchQuery.predicate(for: effectiveSearch, section: KindMedia.vod.rawValue) else {
+      return emptyStreams
     }
+    return streams.filter(predicate)
   }
 
   var filteredLives: Results<CachedStream> {
-    let searchWords = "*\(effectiveSearch.replacingOccurrences(of: " ", with: "*"))*"
-    return streams.where {
-      $0.section == KindMedia.live.rawValue && $0.name.like(searchWords, caseInsensitive: true)
+    guard let predicate = SearchQuery.predicate(for: effectiveSearch, section: KindMedia.live.rawValue) else {
+      return emptyStreams
     }
+    return streams.filter(predicate)
   }
 
   var filteredSeries: Results<CachedSeries> {
-    let searchWords = "*\(effectiveSearch.replacingOccurrences(of: " ", with: "*"))*"
-    return series.where {
-      $0.section == KindMedia.series.rawValue && $0.name.like(searchWords, caseInsensitive: true)
+    guard let predicate = SearchQuery.predicate(for: effectiveSearch) else {
+      return series.filter(NSPredicate(value: false))
     }
+    return series.filter(predicate)
   }
 
   var body: some View {

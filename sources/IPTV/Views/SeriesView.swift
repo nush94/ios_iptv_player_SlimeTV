@@ -21,12 +21,18 @@ public struct SeriesView: View {
 
   private var regionCategoryIds: [String]? {
     guard !region.isEmpty else { return nil }
-    return categories.filter { RegionTag.code(from: $0.name) == region }.map { $0.id }
+    let ids = Array(categories.filter { RegionTag.code(from: $0.name) == region }.map { $0.id })
+    // If this section has no categories for the chosen region, don't filter.
+    return ids.isEmpty ? nil : ids
   }
 
   private var regionSeries: Results<CachedSeries> {
-    guard let ids = regionCategoryIds, !ids.isEmpty else { return series }
-    return series.filter("categoryID IN %@", ids)
+    // Hide shows confirmed to have no episodes from the provider; keep
+    // not-yet-checked shows visible (they drop out as the background episode
+    // check confirms them empty).
+    let playable = series.filter("episodesChecked == false OR episodeCount > 0")
+    guard let ids = regionCategoryIds, !ids.isEmpty else { return playable }
+    return playable.filter("categoryID IN %@", ids)
   }
 
   private var visibleCategories: [CategoryEntity] {
@@ -45,7 +51,48 @@ public struct SeriesView: View {
   }
 
   private var recentShows: [CachedSeries] {
-    Array(regionSeries.prefix(30))
+    limitedSeries(30)
+  }
+
+  private var currentYear: Int {
+    Calendar.current.component(.year, from: Date())
+  }
+
+  private var newShowCutoffYear: Int {
+    max(currentYear - 2, 2024)
+  }
+
+  private var newShows: [CachedSeries] {
+    let pool = scannedSeries(900)
+      .filter { seriesYear($0) >= newShowCutoffYear }
+
+    let ranked = pool.sorted {
+      let firstYear = seriesYear($0)
+      let secondYear = seriesYear($1)
+      if firstYear != secondYear { return firstYear > secondYear }
+      return $0.lastModified > $1.lastModified
+    }
+
+    return Array(ranked.prefix(24))
+  }
+
+  private var bestReviewedNewShows: [CachedSeries] {
+    let pool = scannedSeries(1200)
+      .filter { seriesYear($0) >= newShowCutoffYear && ratingValue($0) > 0 }
+
+    let ranked = pool.sorted {
+      let firstRating = ratingValue($0)
+      let secondRating = ratingValue($1)
+      if firstRating != secondRating { return firstRating > secondRating }
+
+      let firstYear = seriesYear($0)
+      let secondYear = seriesYear($1)
+      if firstYear != secondYear { return firstYear > secondYear }
+
+      return $0.lastModified > $1.lastModified
+    }
+
+    return Array(ranked.prefix(24))
   }
 
   // Group shows by genre (provider sends genre per series, e.g. "Comedy, Drama").
@@ -54,7 +101,11 @@ public struct SeriesView: View {
     var order: [String] = []
     var map: [String: [CachedSeries]] = [:]
 
-    for serie in regionSeries.prefix(1200) {
+    var scanned = 0
+    for serie in regionSeries {
+      guard scanned < 1200 else { break }
+      scanned += 1
+
       guard let primary = genres(from: serie.genre).first else { continue }
       if map[primary] == nil { order.append(primary) }
       map[primary, default: []].append(serie)
@@ -77,6 +128,39 @@ public struct SeriesView: View {
       .filter { !$0.isEmpty }
   }
 
+  private func limitedSeries(_ limit: Int) -> [CachedSeries] {
+    guard limit > 0 else { return [] }
+    var values: [CachedSeries] = []
+    values.reserveCapacity(limit)
+
+    for serie in regionSeries {
+      values.append(serie)
+      if values.count == limit { break }
+    }
+
+    return values
+  }
+
+  private func scannedSeries(_ limit: Int) -> [CachedSeries] {
+    limitedSeries(limit)
+  }
+
+  private func ratingValue(_ serie: CachedSeries) -> Double {
+    serie.rating ?? serie.rating5Based ?? 0
+  }
+
+  private func seriesYear(_ serie: CachedSeries) -> Int {
+    if let year = StreamYearExtractor.year(from: serie.releaseDate) {
+      return year
+    }
+    if let year = StreamYearExtractor.year(from: serie.name) {
+      return year
+    }
+
+    let year = Calendar.current.component(.year, from: serie.lastModified)
+    return year > 1900 ? year : 0
+  }
+
   public init(kindMedia: KindMedia) {
     self.kindMedia = kindMedia
   }
@@ -85,28 +169,36 @@ public struct SeriesView: View {
     NavigationStack {
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 24) {
-          if series.count == 0 {
+          if regionSeries.first == nil {
             LibraryEmptyStateView(
               systemImage: "rectangle.stack",
               title: "No shows loaded yet",
               message: "Reload your playlist in Settings so the app can import shows from this provider."
             )
             .padding(.top, 48)
-          } else if !genreRails.isEmpty {
-            ForEach(genreRails, id: \.genre) { rail in
-              SeriesRailShelf(title: rail.genre, series: rail.series) { serie in
-                streamSelected = serie.id
-                showPlayer = true
-              }
-            }
-          } else if !recentShows.isEmpty {
-            SeriesRailShelf(title: "Shows", series: recentShows) { serie in
-              streamSelected = serie.id
-              showPlayer = true
-            }
           } else {
-            ForEach(visibleCategories, id: \.id) { category in
-              makeSection(for: category)
+            SeriesRailShelf(title: "Best Reviewed New Shows", series: bestReviewedNewShows) { serie in
+              openSeries(serie)
+            }
+
+            SeriesRailShelf(title: "New Shows", series: newShows) { serie in
+              openSeries(serie)
+            }
+
+            if !genreRails.isEmpty {
+              ForEach(genreRails, id: \.genre) { rail in
+                SeriesRailShelf(title: rail.genre, series: rail.series) { serie in
+                  openSeries(serie)
+                }
+              }
+            } else if !recentShows.isEmpty {
+              SeriesRailShelf(title: "Shows", series: recentShows) { serie in
+                openSeries(serie)
+              }
+            } else {
+              ForEach(visibleCategories, id: \.id) { category in
+                makeSection(for: category)
+              }
             }
           }
         }
@@ -115,6 +207,11 @@ public struct SeriesView: View {
       }
       .background {
         HeroHeaderView(belowFold: true)
+      }
+      .task {
+        // Backfill episode counts so shows with nothing to play drop out of the
+        // rails (resumes across launches; only unchecked shows are processed).
+        SeriesEpisodeEnricher.enrichIfNeeded()
       }
       .alert("Error", isPresented: $showErrorAlert) {
         Button("OK", role: .cancel) {
@@ -128,6 +225,11 @@ public struct SeriesView: View {
         }
       })
     }
+  }
+
+  private func openSeries(_ serie: CachedSeries) {
+    streamSelected = serie.id
+    showPlayer = true
   }
 
   @ViewBuilder

@@ -16,13 +16,13 @@ public class FavoriEntity: Object, ObjectKeyIdentifiable {
   @Persisted public var added: Date
   @Persisted public var tmdb: String?
 
-  public convenience init(id: Int, kind: String, name: String, streamIcon: String?, added _: Date, tmdb: String? = nil) {
+  public convenience init(id: Int, kind: String, name: String, streamIcon: String?, added: Date, tmdb: String? = nil) {
     self.init()
     self.id = id
     self.kind = kind
     self.name = name
     self.streamIcon = streamIcon
-    self.added = Date()
+    self.added = added
     self.tmdb = tmdb
   }
 

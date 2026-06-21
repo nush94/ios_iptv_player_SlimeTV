@@ -14,6 +14,11 @@ import SwiftUI
 class CacheManager: CacheManagerProtocol {
   static let shared = CacheManager()
 
+  /// Serial queue for bulk-import writes, so large Realm writes run off the main
+  /// thread. The UI's main-thread Realm auto-refreshes and notifies observers as
+  /// usual once each background write commits.
+  private let writeQueue = DispatchQueue(label: "com.iptv.cache.write", qos: .userInitiated)
+
   public init() {
     print(Realm.Configuration.defaultConfiguration.fileURL!)
   }
@@ -44,28 +49,54 @@ class CacheManager: CacheManagerProtocol {
     do {
       try realm.write {
         for stream in streams {
-          let cachedStream = CachedStream(
-            id: stream.id,
-            name: stream.name,
-            streamType: stream.streamType,
-            streamIcon: stream.streamIcon,
-            section: section,
-            added: stream.added,
-            categoryId: stream.categoryId,
-            rating: stream.rating,
-            desc: stream.description,
-            tmdb: stream.tmdb?.value,
-            year: stream.year,
-            containerExtension: stream.containerExtension,
-            tvArchive: stream.tvArchive,
-            archiveDays: stream.archiveDays
-          )
-          realm.add(cachedStream, update: .modified)
+          realm.add(Self.makeCachedStream(stream, section: section), update: .modified)
         }
       }
     } catch {
       print("Erreur lors de la sauvegarde dans Realm: \(error)")
     }
+  }
+
+  /// Background-thread variant of `cacheStreams` for bulk import: the value-type
+  /// `streams` array is handed to a serial write queue so the large Realm write
+  /// doesn't block the main thread. Awaitable so the import can pace itself.
+  func cacheStreamsInBackground(_ streams: [IPTVModels.Stream], for section: String) async {
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+      writeQueue.async {
+        autoreleasepool {
+          do {
+            let realm = try Realm()
+            try realm.write {
+              for stream in streams {
+                realm.add(Self.makeCachedStream(stream, section: section), update: .modified)
+              }
+            }
+          } catch {
+            print("Erreur lors de la sauvegarde dans Realm: \(error)")
+          }
+        }
+        continuation.resume()
+      }
+    }
+  }
+
+  private static func makeCachedStream(_ stream: IPTVModels.Stream, section: String) -> CachedStream {
+    CachedStream(
+      id: stream.id,
+      name: stream.name,
+      streamType: stream.streamType,
+      streamIcon: stream.streamIcon,
+      section: section,
+      added: stream.added,
+      categoryId: stream.categoryId,
+      rating: stream.rating,
+      desc: stream.description,
+      tmdb: stream.tmdb?.value,
+      year: stream.year,
+      containerExtension: stream.containerExtension,
+      tvArchive: stream.tvArchive,
+      archiveDays: stream.archiveDays
+    )
   }
 
   func resetDatabase() {
@@ -90,6 +121,28 @@ class CacheManager: CacheManagerProtocol {
       }
     } catch {
       print("Erreur lors de la sauvegarde dans Realm: \(error)")
+    }
+  }
+
+  /// Background-thread variant of `cacheSeries` for bulk import (see
+  /// `cacheStreamsInBackground`).
+  func cacheSeriesInBackground(_ series: [Series], for section: String) async {
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+      writeQueue.async {
+        autoreleasepool {
+          do {
+            let realm = try Realm()
+            try realm.write {
+              for serie in series {
+                realm.add(CachedSeries(serie: serie, section: section), update: .modified)
+              }
+            }
+          } catch {
+            print("Erreur lors de la sauvegarde dans Realm: \(error)")
+          }
+        }
+        continuation.resume()
+      }
     }
   }
 

@@ -230,6 +230,8 @@ private struct PlaylistImportLoadingView: View {
 
   private var activePhase: String {
     let lowercased = statusText.lowercased()
+    if lowercased.contains("search") { return "Search" }
+    if lowercased.contains("final") { return "Ready" }
     if lowercased.contains("live") { return "Live TV" }
     if lowercased.contains("movie") { return "Movies" }
     if lowercased.contains("show") { return "Shows" }
@@ -266,6 +268,8 @@ private struct PlaylistImportLoadingView: View {
         phaseRow(title: "Live TV", systemImage: "tv", isActive: activePhase == "Live TV")
         phaseRow(title: "Movies", systemImage: "film", isActive: activePhase == "Movies")
         phaseRow(title: "Shows", systemImage: "rectangle.stack", isActive: activePhase == "Shows")
+        phaseRow(title: "Search", systemImage: "magnifyingglass", isActive: activePhase == "Search")
+        phaseRow(title: "Ready", systemImage: "checkmark.circle", isActive: activePhase == "Ready")
       }
       .padding(16)
       .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))

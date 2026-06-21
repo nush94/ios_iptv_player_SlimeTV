@@ -13,6 +13,7 @@ import SwiftUI
 struct ContentView: View {
   @State private var selectedSection: AppSection = .movies
   @State private var isBottomBarHidden = false
+  @State private var isSearchPresented = false
   @AppStorage("playlistURL") private var playlistURL: String = ""
   @AppStorage("apiHost") private var apiHost: String = ""
   @AppStorage("apiLogin") private var apiLogin: String = ""
@@ -34,8 +35,14 @@ struct ContentView: View {
         .padding(.bottom, isBottomBarHidden ? 0 : 92)
 
       if selectedSection != .settings {
-        AppTopNavigationBar(selectedSection: $selectedSection)
+        AppTopNavigationBar(selectedSection: $selectedSection, isSearchPresented: $isSearchPresented)
           .zIndex(2)
+      }
+
+      if isSearchPresented {
+        SearchOverlayView(isPresented: $isSearchPresented)
+          .transition(.opacity.combined(with: .move(edge: .top)))
+          .zIndex(5)
       }
 
       VStack {
@@ -71,6 +78,7 @@ struct ContentView: View {
         withAnimation(.snappy) {
           selectedSection = .movies
           isBottomBarHidden = false
+          isSearchPresented = false
         }
       }
   }
@@ -138,6 +146,7 @@ private enum AppSection: String, CaseIterable, Identifiable {
 
 private struct AppTopNavigationBar: View {
   @Binding var selectedSection: AppSection
+  @Binding var isSearchPresented: Bool
 
   var body: some View {
     VStack(spacing: 0) {
@@ -154,7 +163,7 @@ private struct AppTopNavigationBar: View {
 
         HStack(spacing: 4) {
           RegionMenu()
-          iconButton(for: .search)
+          searchButton
           iconButton(for: .settings)
         }
       }
@@ -230,6 +239,28 @@ private struct AppTopNavigationBar: View {
     }
     .buttonStyle(.plain)
     .accessibilityLabel(section.rawValue)
+  }
+
+  private var searchButton: some View {
+    Button {
+      withAnimation(.snappy) {
+        isSearchPresented = true
+      }
+    } label: {
+      VStack(spacing: 6) {
+        Image(systemName: "magnifyingglass")
+          .font(.system(size: 20, weight: .semibold))
+
+        Capsule()
+          .fill(isSearchPresented ? .red : .clear)
+          .frame(width: isSearchPresented ? 22 : 0, height: 3)
+      }
+      .foregroundStyle(isSearchPresented ? .white : .white.opacity(0.66))
+      .frame(width: 44, height: 44)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("Search")
   }
 }
 
@@ -321,6 +352,408 @@ private struct AppBottomNavigationBar: View {
     }
     .padding(.vertical, 6)
     .padding(.horizontal, 2)
+  }
+}
+
+private struct SearchOverlayView: View {
+  @Binding var isPresented: Bool
+  @ObservedResults(CachedStream.self) private var streams
+  @ObservedResults(CachedSeries.self) private var series
+
+  @State private var query = ""
+  @State private var effectiveQuery = ""
+  @State private var searchTask: Task<Void, Never>?
+  @State private var movieResults: [CachedStream] = []
+  @State private var showResults: [CachedSeries] = []
+  @State private var liveResults: [CachedStream] = []
+  @State private var selectedStreamURL: URL?
+  @State private var selectedKind: KindMedia = .vod
+  @State private var selectedPlaybackContext: PlaybackProgressContext?
+  @State private var selectedMovieForDetails: CachedStream?
+  @State private var selectedSerieId: Int?
+  @State private var showPlayer = false
+  @State private var showMovieDetails = false
+  @State private var showSerieDetail = false
+  @State private var currentID = 9999
+  @FocusState private var isSearchFocused: Bool
+
+  var body: some View {
+    ZStack(alignment: .top) {
+      Color.black.opacity(0.58)
+        .ignoresSafeArea()
+        .onTapGesture {
+          dismiss()
+        }
+
+      VStack(spacing: 12) {
+        searchHeader
+
+        if effectiveQuery.count < 2 {
+          emptyHint
+        } else {
+          resultsList
+        }
+      }
+      .padding(.horizontal, 16)
+      .padding(.top, 74)
+      .padding(.bottom, 16)
+      .background(alignment: .top) {
+        LinearGradient(
+          colors: [.black.opacity(0.98), .black.opacity(0.86), .clear],
+          startPoint: .top,
+          endPoint: .bottom
+        )
+        .frame(height: 560)
+        .ignoresSafeArea()
+      }
+    }
+    .onAppear {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+        isSearchFocused = true
+      }
+    }
+    .onDisappear {
+      searchTask?.cancel()
+    }
+    .onChange(of: query) {
+      scheduleSearch()
+    }
+    .fullScreenCover(isPresented: Binding(get: {
+      showPlayer && selectedStreamURL != nil
+    }, set: { showPlayer = $0 })) {
+      if let selectedStreamURL {
+        ViewPlayerContent(
+          mediaURL: selectedStreamURL,
+          id: currentID,
+          kind: selectedKind,
+          playbackContext: selectedPlaybackContext
+        )
+        .ignoresSafeArea()
+      }
+    }
+    .fullScreenCover(isPresented: Binding(get: {
+      showMovieDetails && selectedMovieForDetails != nil
+    }, set: { showMovieDetails = $0 })) {
+      if let selectedMovieForDetails {
+        MovieInfoView(movie: selectedMovieForDetails)
+      }
+    }
+    .fullScreenCover(isPresented: Binding(get: {
+      showSerieDetail && selectedSerieId != nil
+    }, set: { showSerieDetail = $0 })) {
+      if let selectedSerieId {
+        SerieDetailView(streamId: selectedSerieId)
+      }
+    }
+  }
+
+  private var searchHeader: some View {
+    HStack(spacing: 10) {
+      HStack(spacing: 10) {
+        Image(systemName: "magnifyingglass")
+          .font(.system(size: 17, weight: .bold))
+          .foregroundStyle(.white.opacity(0.62))
+
+        TextField("Search movies, shows, live TV...", text: $query)
+          .focused($isSearchFocused)
+          .textInputAutocapitalization(.never)
+          .autocorrectionDisabled()
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(.white)
+          .submitLabel(.search)
+
+        if !query.isEmpty {
+          Button {
+            query = ""
+          } label: {
+            Image(systemName: "xmark.circle.fill")
+              .font(.system(size: 17, weight: .bold))
+              .foregroundStyle(.white.opacity(0.55))
+          }
+          .buttonStyle(.plain)
+        }
+      }
+      .frame(height: 48)
+      .padding(.horizontal, 14)
+      .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+      .overlay {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+          .stroke(.white.opacity(0.14), lineWidth: 1)
+      }
+
+      Button("Cancel") {
+        dismiss()
+      }
+      .font(.system(size: 15, weight: .bold))
+      .foregroundStyle(.red)
+      .buttonStyle(.plain)
+    }
+  }
+
+  private var emptyHint: some View {
+    VStack(spacing: 10) {
+      Image(systemName: "magnifyingglass")
+        .font(.system(size: 28, weight: .semibold))
+      Text("Type at least 2 letters")
+        .font(.system(size: 17, weight: .bold))
+      Text("Find movies, shows, and live channels without leaving this screen.")
+        .font(.callout.weight(.medium))
+        .foregroundStyle(.white.opacity(0.58))
+        .multilineTextAlignment(.center)
+    }
+    .foregroundStyle(.white.opacity(0.78))
+    .frame(maxWidth: .infinity)
+    .padding(.vertical, 34)
+    .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: 18, style: .continuous)
+        .stroke(.white.opacity(0.08), lineWidth: 1)
+    }
+  }
+
+  private var resultsList: some View {
+    ScrollView {
+      LazyVStack(alignment: .leading, spacing: 18) {
+        resultSection(title: "Movies", count: movieResults.count) {
+          ForEach(movieResults, id: \.id) { stream in
+            SearchResultRow(
+              title: stream.name.formatted(),
+              subtitle: movieSubtitle(stream),
+              imageURL: stream.tmdbImage ?? stream.streamIcon,
+              systemImage: "film"
+            ) {
+              openMovie(stream)
+            }
+          }
+        }
+
+        resultSection(title: "Shows", count: showResults.count) {
+          ForEach(showResults, id: \.id) { serie in
+            SearchResultRow(
+              title: serie.name.formatted(),
+              subtitle: showSubtitle(serie),
+              imageURL: serie.cover,
+              systemImage: "play.tv"
+            ) {
+              openSeries(serie)
+            }
+          }
+        }
+
+        resultSection(title: "Live TV", count: liveResults.count) {
+          ForEach(liveResults, id: \.id) { stream in
+            SearchResultRow(
+              title: TVChannelText.cleanName(stream.name),
+              subtitle: "Live channel",
+              imageURL: stream.streamIcon,
+              systemImage: "tv"
+            ) {
+              openLive(stream)
+            }
+          }
+        }
+
+        if movieResults.isEmpty && showResults.isEmpty && liveResults.isEmpty {
+          noResults
+        }
+      }
+      .padding(.bottom, 130)
+    }
+    .frame(maxHeight: 560)
+    .scrollIndicators(.hidden)
+  }
+
+  private func resultSection<Content: View>(
+    title: String,
+    count: Int,
+    @ViewBuilder content: () -> Content
+  ) -> some View {
+    Group {
+      if count > 0 {
+        VStack(alignment: .leading, spacing: 9) {
+          HStack {
+            Text(title)
+              .font(.system(size: 18, weight: .bold))
+              .foregroundStyle(.white)
+
+            Spacer()
+
+            Text("\(count)")
+              .font(.caption.weight(.bold))
+              .foregroundStyle(.white.opacity(0.45))
+          }
+
+          LazyVStack(spacing: 8) {
+            content()
+          }
+        }
+      }
+    }
+  }
+
+  private var noResults: some View {
+    VStack(spacing: 8) {
+      Image(systemName: "exclamationmark.magnifyingglass")
+        .font(.system(size: 26, weight: .semibold))
+      Text("No results found")
+        .font(.system(size: 17, weight: .bold))
+      Text("Try a shorter title, actor name, channel, or country.")
+        .font(.callout.weight(.medium))
+        .foregroundStyle(.white.opacity(0.58))
+    }
+    .foregroundStyle(.white.opacity(0.78))
+    .frame(maxWidth: .infinity)
+    .padding(.vertical, 30)
+  }
+
+  private func scheduleSearch() {
+    searchTask?.cancel()
+    let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    searchTask = Task {
+      try? await Task.sleep(nanoseconds: 220_000_000)
+      guard !Task.isCancelled else { return }
+      await MainActor.run {
+        effectiveQuery = value
+        rebuildResults(for: value)
+      }
+    }
+  }
+
+  private func rebuildResults(for text: String) {
+    guard text.count >= 2,
+          let predicate = SearchQuery.predicate(for: text),
+          let moviePredicate = SearchQuery.predicate(for: text, section: KindMedia.vod.rawValue),
+          let livePredicate = SearchQuery.predicate(for: text, section: KindMedia.live.rawValue)
+    else {
+      movieResults = []
+      showResults = []
+      liveResults = []
+      return
+    }
+
+    movieResults = Array(streams.filter(moviePredicate).prefix(20))
+    liveResults = Array(streams.filter(livePredicate).prefix(12))
+    showResults = Array(series.filter(predicate).prefix(20))
+  }
+
+  private func movieSubtitle(_ stream: CachedStream) -> String {
+    var parts: [String] = []
+    if let year = stream.year, year > 0 {
+      parts.append("\(year)")
+    } else if let year = StreamYearExtractor.year(from: stream.name) {
+      parts.append("\(year)")
+    }
+    if let rating = Double(stream.rating ?? ""), rating > 0 {
+      parts.append(String(format: "%.1f", rating))
+    }
+    return parts.isEmpty ? "Movie" : parts.joined(separator: " • ")
+  }
+
+  private func showSubtitle(_ serie: CachedSeries) -> String {
+    var parts: [String] = []
+    if let year = StreamYearExtractor.year(from: serie.releaseDate) ?? StreamYearExtractor.year(from: serie.name) {
+      parts.append("\(year)")
+    }
+    let rating = serie.rating ?? serie.rating5Based ?? 0
+    if rating > 0 {
+      parts.append(String(format: "%.1f", rating))
+    }
+    return parts.isEmpty ? "Show" : parts.joined(separator: " • ")
+  }
+
+  private func openMovie(_ stream: CachedStream) {
+    selectedMovieForDetails = stream
+    showMovieDetails = true
+  }
+
+  private func openLive(_ stream: CachedStream) {
+    currentID = stream.id
+    selectedKind = .live
+    selectedPlaybackContext = nil
+    selectedStreamURL = URL(string: stream.streamURL())
+    showPlayer = true
+  }
+
+  private func openSeries(_ serie: CachedSeries) {
+    selectedSerieId = serie.id
+    showSerieDetail = true
+  }
+
+  private func dismiss() {
+    searchTask?.cancel()
+    isSearchFocused = false
+    withAnimation(.snappy) {
+      isPresented = false
+    }
+  }
+}
+
+private struct SearchResultRow: View {
+  let title: String
+  let subtitle: String
+  let imageURL: String?
+  let systemImage: String
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: 12) {
+        poster
+          .frame(width: 52, height: 68)
+          .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+          .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+        VStack(alignment: .leading, spacing: 5) {
+          Text(title)
+            .font(.system(size: 15, weight: .bold))
+            .foregroundStyle(.white)
+            .lineLimit(2)
+
+          Text(subtitle)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.white.opacity(0.55))
+            .lineLimit(1)
+        }
+
+        Spacer(minLength: 8)
+
+        Image(systemName: "play.fill")
+          .font(.system(size: 12, weight: .bold))
+          .foregroundStyle(.white)
+          .frame(width: 34, height: 34)
+          .background(.red, in: Circle())
+      }
+      .padding(10)
+      .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+      .overlay {
+        RoundedRectangle(cornerRadius: 15, style: .continuous)
+          .stroke(.white.opacity(0.08), lineWidth: 1)
+      }
+    }
+    .buttonStyle(.plain)
+  }
+
+  @ViewBuilder
+  private var poster: some View {
+    if let imageURL, !imageURL.isEmpty, let url = URL(string: imageURL) {
+      AsyncImage(url: url, placeholder: {
+        placeholder
+      }, content: { image in
+        image.resizable().scaledToFill()
+      })
+    } else {
+      placeholder
+    }
+  }
+
+  private var placeholder: some View {
+    ZStack {
+      Color.white.opacity(0.06)
+      Image(systemName: systemImage)
+        .font(.system(size: 20, weight: .semibold))
+        .foregroundStyle(.white.opacity(0.48))
+    }
   }
 }
 
@@ -495,6 +928,25 @@ private struct ContinueWatchingView: View {
   }
 }
 
+private enum LiveTVSortMode: String, CaseIterable, Identifiable {
+  case liveNow
+  case az
+  case playlist
+
+  var id: String { rawValue }
+
+  var title: String {
+    switch self {
+    case .liveNow:
+      return "Live Now"
+    case .az:
+      return "A-Z"
+    case .playlist:
+      return "Playlist"
+    }
+  }
+}
+
 private struct TVView: View {
   @ObservedResults(CategoryEntity.self, where: ({ $0.section == KindMedia.live.rawValue })) private var categories
   @ObservedResults(CachedStream.self, where: ({ $0.section == KindMedia.live.rawValue })) private var channels
@@ -513,11 +965,23 @@ private struct TVView: View {
   @State private var showPlayer = false
   @State private var inlinePlayingChannelId: Int?
   @State private var showCatchUp = false
+  @State private var showRecentOnly = false
+  @State private var hideDuplicateChannels = false
+  @State private var sortMode: LiveTVSortMode = .liveNow
   @AppStorage("contentRegion") private var region: String = ""
+  @AppStorage("recentLiveChannelIds") private var recentLiveChannelIdsRaw = ""
+  @AppStorage("apiHost") private var apiHost: String = ""
+
+  private var isPlaylistConfigured: Bool {
+    !apiHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
 
   private var regionChannelCategoryIds: Set<String>? {
     guard !region.isEmpty else { return nil }
-    return Set(categories.filter { RegionTag.code(from: $0.name) == region }.map { $0.id })
+    let ids = Set(categories.filter { RegionTag.code(from: $0.name) == region }.map { $0.id })
+    // Live uses country codes (US/UK/CA), not language codes (EN). If the chosen
+    // region matches no live categories, don't filter — show everything.
+    return ids.isEmpty ? nil : ids
   }
   @State private var isRefreshingEPG = false
   @State private var requestedEPGStreamIds = Set<Int>()
@@ -529,6 +993,10 @@ private struct TVView: View {
   @State private var favoriteLiveChannelPreview: [CachedStream] = []
   @State private var favoriteLiveChannelCount = 0
   @State private var currentProgramsByStreamId: [Int: LiveProgram] = [:]
+  @State private var channelDisplayLimitCount = 60
+
+  private let channelPageSize = 60
+  private let searchChannelPageSize = 80
 
   private var trimmedSearchText: String {
     effectiveSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -555,7 +1023,7 @@ private struct TVView: View {
   }
 
   private var channelDisplayLimit: Int {
-    isSearching ? 500 : 250
+    channelDisplayLimitCount
   }
 
   private var visibleChannelCount: Int {
@@ -567,11 +1035,18 @@ private struct TVView: View {
       return favoriteLiveChannelCount
     }
 
-    if let selectedCategoryId {
+    if showRecentOnly || hideDuplicateChannels || regionChannelCategoryIds != nil {
       return displayedChannelTotal
     }
 
-    return channels.count
+    if selectedCategoryId != nil {
+      return displayedChannelTotal
+    }
+
+    // Default (no category/filter): mirror what the filtered query actually shows
+    // (e.g. `.liveNow` hides "NO EVENT STREAMING") rather than the raw, unfiltered
+    // total — otherwise the header overcounts and paging keeps rebuilding at the end.
+    return displayedChannelTotal
   }
 
   private var channelSectionTitle: String {
@@ -581,6 +1056,10 @@ private struct TVView: View {
 
     if showFavoritesOnly {
       return "Favorites"
+    }
+
+    if showRecentOnly {
+      return "Recent"
     }
 
     if let selectedCategoryId {
@@ -595,6 +1074,26 @@ private struct TVView: View {
     categoryOptionsCache.isEmpty
       ? [LiveTVCategoryOption(id: nil, title: "All")]
       : categoryOptionsCache
+  }
+
+  private var recentLiveChannelIds: [Int] {
+    recentLiveChannelIdsRaw
+      .split(separator: ",")
+      .compactMap { Int($0) }
+  }
+
+  private var recentLiveChannelIdSet: Set<Int> {
+    Set(recentLiveChannelIds)
+  }
+
+  private var availableRegionCodes: [String] {
+    var values = Set<String>()
+    for category in categories {
+      if let code = RegionTag.code(from: category.name) {
+        values.insert(code)
+      }
+    }
+    return values.sorted()
   }
 
   var body: some View {
@@ -621,7 +1120,9 @@ private struct TVView: View {
       .onChange(of: selectedCategoryId) {
         if selectedCategoryId != nil {
           showFavoritesOnly = false
+          showRecentOnly = false
         }
+        resetChannelPaging()
         rebuildDisplayedChannels()
         selectFirstChannelIfNeeded(force: true)
         refreshVisibleEPGIfNeeded()
@@ -634,7 +1135,31 @@ private struct TVView: View {
       .onChange(of: showFavoritesOnly) {
         if showFavoritesOnly {
           selectedCategoryId = nil
+          showRecentOnly = false
         }
+        resetChannelPaging()
+        rebuildDisplayedChannels()
+        selectFirstChannelIfNeeded(force: true)
+        refreshVisibleEPGIfNeeded()
+      }
+      .onChange(of: showRecentOnly) {
+        if showRecentOnly {
+          selectedCategoryId = nil
+          showFavoritesOnly = false
+        }
+        resetChannelPaging()
+        rebuildDisplayedChannels()
+        selectFirstChannelIfNeeded(force: true)
+        refreshVisibleEPGIfNeeded()
+      }
+      .onChange(of: hideDuplicateChannels) {
+        resetChannelPaging()
+        rebuildDisplayedChannels()
+        selectFirstChannelIfNeeded(force: true)
+        refreshVisibleEPGIfNeeded()
+      }
+      .onChange(of: sortMode) {
+        resetChannelPaging()
         rebuildDisplayedChannels()
         selectFirstChannelIfNeeded(force: true)
         refreshVisibleEPGIfNeeded()
@@ -651,6 +1176,7 @@ private struct TVView: View {
       }
       .onChange(of: region) {
         selectedCategoryId = nil
+        resetChannelPaging()
         scheduleLiveTVRebuild()
       }
       .onDisappear {
@@ -702,33 +1228,23 @@ private struct TVView: View {
     VStack(spacing: 0) {
       tvHeader
         .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 14)
+        .padding(.top, 6)
+        .padding(.bottom, 10)
 
       searchField
         .padding(.horizontal, 16)
-        .padding(.bottom, 12)
-
-      quickSections
-        .padding(.bottom, 12)
+        .padding(.bottom, 10)
 
       categoryBar
-        .padding(.bottom, 12)
+        .padding(.bottom, 10)
 
-      favoritesSection
-        .padding(.bottom, 12)
-
-      channelsHeader
+      playlistOrganizerBar
         .padding(.horizontal, 16)
-        .padding(.bottom, 8)
+        .padding(.bottom, 10)
 
       previewPlayer
         .padding(.horizontal, 16)
-        .padding(.bottom, 12)
-
-      catchUpButton
-        .padding(.horizontal, 16)
-        .padding(.bottom, 12)
+        .padding(.bottom, 10)
 
       channelList
     }
@@ -757,12 +1273,9 @@ private struct TVView: View {
         categoryBar
           .padding(.bottom, 12)
 
-        favoritesSection
-          .padding(.bottom, 12)
-
-        channelsHeader
+        playlistOrganizerBar
           .padding(.horizontal, 16)
-          .padding(.bottom, 10)
+          .padding(.bottom, 12)
 
         channelList
       }
@@ -777,7 +1290,6 @@ private struct TVView: View {
         Spacer(minLength: 0)
         previewPlayer
           .frame(width: videoWidth)
-        catchUpButton
         Spacer(minLength: 0)
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -791,9 +1303,11 @@ private struct TVView: View {
   private var emptyState: some View {
     ScrollView {
       LibraryEmptyStateView(
-        systemImage: "sparkles.tv",
-        title: "No live channels yet",
-        message: "Add your Xtream playlist in Settings, then tap Save & Load Playlist."
+        systemImage: isPlaylistConfigured ? "arrow.clockwise" : "sparkles.tv",
+        title: isPlaylistConfigured ? "Couldn't load channels" : "No live channels yet",
+        message: isPlaylistConfigured
+          ? "Your channel list didn't finish loading. Open Settings and tap Save & Load Playlist to try again."
+          : "Add your Xtream playlist in Settings, then tap Save & Load Playlist."
       )
       .padding(.top, 36)
       .padding(.horizontal, 16)
@@ -801,14 +1315,34 @@ private struct TVView: View {
   }
 
   private var tvHeader: some View {
-    VStack(alignment: .leading, spacing: 5) {
-      Text("Live TV")
-        .font(.system(size: 34, weight: .bold))
-        .foregroundStyle(.white)
+    HStack(alignment: .center, spacing: 12) {
+      VStack(alignment: .leading, spacing: 5) {
+        Text("Live TV")
+          .font(.system(size: 31, weight: .bold))
+          .foregroundStyle(.white)
 
-      Text("Watch live channels from your playlist.")
-        .font(.callout.weight(.medium))
-        .foregroundStyle(.white.opacity(0.64))
+        Text("Watch live channels from your playlist.")
+          .font(.subheadline.weight(.medium))
+          .foregroundStyle(.white.opacity(0.64))
+      }
+
+      Spacer(minLength: 8)
+
+      VStack(alignment: .leading, spacing: 2) {
+        Label("\(channels.count.formatted()) channels", systemImage: "line.3.horizontal.decrease.circle")
+          .font(.caption2.weight(.bold))
+        Text("Grouped by category")
+          .font(.system(size: 10, weight: .semibold))
+      }
+      .lineLimit(1)
+      .foregroundStyle(.white.opacity(0.78))
+      .padding(.horizontal, 10)
+      .frame(height: 44)
+      .background(.black.opacity(0.24), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+      .overlay {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+          .stroke(.white.opacity(0.10), lineWidth: 1)
+      }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
   }
@@ -819,7 +1353,7 @@ private struct TVView: View {
         .font(.system(size: 16, weight: .semibold))
         .foregroundStyle(.white.opacity(0.55))
 
-      TextField("Search channels, sports, movies...", text: $searchText)
+      TextField("Search channels, programs, countries...", text: $searchText)
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
         .font(.system(size: 15, weight: .semibold))
@@ -835,8 +1369,12 @@ private struct TVView: View {
         }
         .buttonStyle(.plain)
       }
+
+      Image(systemName: "slider.horizontal.3")
+        .font(.system(size: 15, weight: .bold))
+        .foregroundStyle(.white.opacity(0.50))
     }
-    .frame(height: 44)
+    .frame(height: 40)
     .padding(.horizontal, 14)
     .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     .overlay {
@@ -851,6 +1389,7 @@ private struct TVView: View {
       program: selectedChannel.flatMap { currentProgramByStreamId[$0.id] },
       categoryName: selectedChannel.map { categoryName(for: $0.categoryId) } ?? "Live TV",
       isPlayingInline: selectedChannel.map { inlinePlayingChannelId == $0.id } ?? false,
+      canCatchUp: selectedChannel?.tvArchive ?? false,
       onPlayInline: {
         if let selectedChannel {
           playInline(selectedChannel)
@@ -860,7 +1399,8 @@ private struct TVView: View {
         if let selectedChannel {
           openFullscreen(selectedChannel)
         }
-      }
+      },
+      onCatchUp: { showCatchUp = true }
     )
   }
 
@@ -899,13 +1439,88 @@ private struct TVView: View {
     LiveTVCategoryBar(
       options: categoryOptions,
       selectedCategoryId: selectedCategoryId,
-      showFavoritesOnly: showFavoritesOnly
+      showFavoritesOnly: showFavoritesOnly,
+      showRecentOnly: showRecentOnly
     ) { option in
       withAnimation(.snappy) {
         showFavoritesOnly = false
+        showRecentOnly = false
         selectedCategoryId = option.id
       }
+    } onFavorites: {
+      withAnimation(.snappy) {
+        selectedCategoryId = nil
+        showRecentOnly = false
+        showFavoritesOnly.toggle()
+      }
     }
+  }
+
+  private var playlistOrganizerBar: some View {
+    HStack(spacing: 10) {
+      Menu {
+        Button { region = "" } label: {
+          Label("All countries", systemImage: region.isEmpty ? "checkmark" : "globe")
+        }
+
+        ForEach(availableRegionCodes, id: \.self) { code in
+          Button { region = code } label: {
+            if region == code {
+              Label(countryDisplayName(for: code), systemImage: "checkmark")
+            } else {
+              Text(countryDisplayName(for: code))
+            }
+          }
+        }
+      } label: {
+        organizerButtonContent(
+          systemImage: "globe",
+          title: "Country: \(region.isEmpty ? "All" : countryDisplayName(for: region))"
+        )
+      }
+      .buttonStyle(.plain)
+
+      Menu {
+        ForEach(LiveTVSortMode.allCases) { mode in
+          Button { sortMode = mode } label: {
+            if sortMode == mode {
+              Label(mode.title, systemImage: "checkmark")
+            } else {
+              Text(mode.title)
+            }
+          }
+        }
+      } label: {
+        organizerButtonContent(systemImage: "arrow.up.arrow.down", title: "Sort: \(sortMode.title)")
+      }
+      .buttonStyle(.plain)
+    }
+  }
+
+  private func organizerButtonContent(systemImage: String, title: String) -> some View {
+    HStack(spacing: 7) {
+      Image(systemName: systemImage)
+        .font(.system(size: 12, weight: .bold))
+      Text(title)
+        .font(.caption.weight(.bold))
+        .lineLimit(1)
+      Spacer(minLength: 4)
+      Image(systemName: "chevron.down")
+        .font(.system(size: 10, weight: .heavy))
+    }
+    .foregroundStyle(.white.opacity(0.78))
+    .padding(.horizontal, 11)
+    .frame(maxWidth: .infinity)
+    .frame(height: 36)
+    .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .stroke(.white.opacity(0.10), lineWidth: 1)
+    }
+  }
+
+  private func countryDisplayName(for code: String) -> String {
+    Locale.current.localizedString(forRegionCode: code) ?? code
   }
 
   private var quickSections: some View {
@@ -995,7 +1610,13 @@ private struct TVView: View {
     let programs = currentProgramByStreamId
 
     return ScrollView {
-      LazyVStack(spacing: 8) {
+      LazyVStack(alignment: .leading, spacing: 10) {
+        liveNowSection(rows: Array(rows.prefix(3)), programs: programs)
+          .padding(.bottom, 10)
+
+        channelGuideHeader
+          .padding(.bottom, 2)
+
         ForEach(rows, id: \.id) { channel in
           GuideChannelRow(
             channel: channel,
@@ -1010,21 +1631,137 @@ private struct TVView: View {
           } onToggleFavorite: {
             toggleFavorite(channel)
           }
+          .onAppear {
+            if channel.id == rows.last?.id {
+              loadMoreChannelsIfNeeded()
+            }
+          }
         }
 
         if hiddenCount > 0 {
-          Text("Showing first \(rows.count.formatted()) channels. Search to find more.")
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.52))
+          Button(action: loadMoreChannelsIfNeeded) {
+            HStack(spacing: 8) {
+              Text("Showing \(rows.count.formatted()) of \(visibleChannelCount.formatted())")
+              Image(systemName: "chevron.down")
+                .font(.system(size: 10, weight: .heavy))
+            }
+            .font(.caption.weight(.bold))
+            .foregroundStyle(.white.opacity(0.72))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
+            .background(.white.opacity(0.05), in: Capsule())
+          }
+          .buttonStyle(.plain)
         }
       }
       .padding(.horizontal, 16)
-      .padding(.top, 4)
-      .padding(.bottom, 132)
+      .padding(.top, 2)
+      .padding(.bottom, 148)
     }
     .scrollIndicators(.hidden)
+  }
+
+  private func liveNowSection(rows: [CachedStream], programs: [Int: LiveProgram]) -> some View {
+    VStack(alignment: .leading, spacing: 9) {
+      HStack {
+        Text("Live Now")
+          .font(.system(size: 18, weight: .bold))
+          .foregroundStyle(.white)
+
+        Spacer()
+
+        Button {
+          withAnimation(.snappy) {
+            selectedCategoryId = nil
+            showFavoritesOnly = false
+            showRecentOnly = false
+          }
+        } label: {
+          HStack(spacing: 3) {
+            Text("View all")
+            Image(systemName: "chevron.right")
+              .font(.system(size: 9, weight: .heavy))
+          }
+          .font(.caption.weight(.bold))
+          .foregroundStyle(.red)
+        }
+        .buttonStyle(.plain)
+      }
+
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 8) {
+          ForEach(rows, id: \.id) { channel in
+            LiveNowChannelCard(
+              channel: channel,
+              program: programs[channel.id],
+              isSelected: selectedChannel?.id == channel.id
+            ) {
+              select(channel)
+            }
+          }
+        }
+      }
+      .scrollClipDisabled()
+    }
+  }
+
+  private var channelGuideHeader: some View {
+    VStack(alignment: .leading, spacing: 9) {
+      HStack(alignment: .lastTextBaseline) {
+        Text("Channel Guide")
+          .font(.system(size: 20, weight: .bold))
+          .foregroundStyle(.white)
+
+        Spacer()
+
+        Text("\(visibleChannelCount.formatted())")
+          .font(.caption.weight(.bold))
+          .foregroundStyle(.white.opacity(0.52))
+      }
+
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 8) {
+          guideActionPill(title: "Favorites", systemImage: "star", isSelected: showFavoritesOnly) {
+            withAnimation(.snappy) {
+              showFavoritesOnly.toggle()
+            }
+          }
+
+          guideActionPill(title: "Recent", systemImage: "clock", isSelected: showRecentOnly) {
+            withAnimation(.snappy) {
+              showRecentOnly.toggle()
+            }
+          }
+
+          guideActionPill(title: "Hide Duplicates", systemImage: "rectangle.stack.badge.minus", isSelected: hideDuplicateChannels) {
+            withAnimation(.snappy) {
+              hideDuplicateChannels.toggle()
+            }
+          }
+        }
+      }
+      .scrollClipDisabled()
+    }
+  }
+
+  private func guideActionPill(title: String, systemImage: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      HStack(spacing: 6) {
+        Image(systemName: systemImage)
+          .font(.system(size: 11, weight: .bold))
+        Text(title)
+          .font(.caption.weight(.bold))
+      }
+      .foregroundStyle(isSelected ? .white : .white.opacity(0.68))
+      .padding(.horizontal, 11)
+      .frame(height: 32)
+      .background(isSelected ? .red.opacity(0.22) : .white.opacity(0.07), in: Capsule())
+      .overlay {
+        Capsule()
+          .stroke(isSelected ? .red.opacity(0.55) : .white.opacity(0.10), lineWidth: 1)
+      }
+    }
+    .buttonStyle(.plain)
   }
 
   private func categoryName(for categoryId: String) -> String {
@@ -1044,12 +1781,25 @@ private struct TVView: View {
     favoriteLiveChannelIds.contains(channel.id)
   }
 
+  private func resetChannelPaging() {
+    channelDisplayLimitCount = isSearching ? searchChannelPageSize : channelPageSize
+  }
+
+  private func loadMoreChannelsIfNeeded() {
+    guard displayedChannels.count < visibleChannelCount else { return }
+    let pageSize = isSearching ? searchChannelPageSize : channelPageSize
+    channelDisplayLimitCount += pageSize
+    rebuildDisplayedChannels()
+    refreshVisibleEPGIfNeeded()
+  }
+
   private func scheduleLiveTVRebuild() {
     rebuildTask?.cancel()
     rebuildTask = Task {
       try? await Task.sleep(nanoseconds: 180_000_000)
       guard !Task.isCancelled else { return }
       await MainActor.run {
+        resetChannelPaging()
         rebuildLiveTVCaches()
         selectFirstChannelIfNeeded(force: true)
         refreshVisibleEPGIfNeeded()
@@ -1060,6 +1810,7 @@ private struct TVView: View {
   private func rebuildLiveTVCaches() {
     rebuildCategoryNameCache()
     rebuildCategoryOptionsCache()
+    applyDefaultLiveTVCategoryIfNeeded()
     rebuildFavoriteChannelCache()
     rebuildDisplayedChannels()
   }
@@ -1075,24 +1826,34 @@ private struct TVView: View {
 
   private func rebuildCategoryOptionsCache() {
     let requested = [
-      ("All", []),
-      ("Locals", ["local", "locals"]),
       ("Sports", ["sport", "sports", "f1", "nba", "nfl", "mlb", "soccer"]),
       ("News", ["news"]),
       ("Movies", ["movie", "movies", "cinema"]),
-      ("Shows", ["show", "shows", "series", "entertainment"]),
+      ("Kids", ["kid", "kids", "child", "children", "cartoon"]),
     ]
 
     var options: [LiveTVCategoryOption] = [
-      LiveTVCategoryOption(id: nil, title: "All"),
+      LiveTVCategoryOption(id: nil, title: "All")
     ]
 
-    for item in requested.dropFirst() {
+    for item in requested {
       guard let category = matchingCategory(keywords: item.1) else { continue }
       options.append(LiveTVCategoryOption(id: category.id, title: item.0))
     }
 
     categoryOptionsCache = options
+  }
+
+  private func applyDefaultLiveTVCategoryIfNeeded() {
+    guard !showFavoritesOnly, !showRecentOnly, !isSearching else { return }
+
+    let availableIds = Set(categoryOptionsCache.compactMap(\.id))
+    if let selectedCategoryId, availableIds.contains(selectedCategoryId) {
+      return
+    }
+
+    selectedCategoryId = categoryOptionsCache.first(where: { $0.title == "Sports" })?.id
+      ?? categoryOptionsCache.first?.id
   }
 
   private func rebuildFavoriteChannelCache() {
@@ -1104,61 +1865,59 @@ private struct TVView: View {
       return
     }
 
-    var preview: [CachedStream] = []
-    var count = 0
-
-    for channel in channels where favoriteIds.contains(channel.id) {
-      count += 1
-      if preview.count < 12 {
-        preview.append(channel)
-      }
+    guard let realm = try? Realm() else {
+      favoriteLiveChannelIds = favoriteIds
+      favoriteLiveChannelPreview = []
+      favoriteLiveChannelCount = favoriteIds.count
+      return
     }
 
+    let favorites = realm.objects(CachedStream.self)
+      .filter("section == %@ AND id IN %@", KindMedia.live.rawValue, Array(favoriteIds))
+
     favoriteLiveChannelIds = favoriteIds
-    favoriteLiveChannelPreview = preview
-    favoriteLiveChannelCount = count
+    favoriteLiveChannelPreview = Array(favorites.prefix(12))
+    favoriteLiveChannelCount = favorites.count
   }
 
   private func rebuildDisplayedChannels() {
     let limit = channelDisplayLimit
-    let regionIds = regionChannelCategoryIds
 
-    if !isSearching, !showFavoritesOnly, selectedCategoryId == nil, regionIds == nil {
-      let rows = Array(channels.prefix(limit))
-      displayedChannels = rows
-      displayedChannelTotal = channels.count
-      rebuildCurrentProgramCache(for: rows)
+    guard !hideDuplicateChannels else {
+      rebuildDisplayedChannelsWithDuplicateCleanup(limit: limit)
       return
     }
 
-    let favoriteIds = showFavoritesOnly ? favoriteLiveChannelIds : []
-    let categoryNames = isSearching ? categoryNamesById : [:]
+    guard let results = makeLiveChannelQuery() else {
+      displayedChannels = []
+      displayedChannelTotal = 0
+      rebuildCurrentProgramCache(for: [])
+      return
+    }
+
+    let rows = Array(results.prefix(limit))
+    displayedChannels = sortInMemoryIfNeeded(rows)
+    displayedChannelTotal = results.count
+    rebuildCurrentProgramCache(for: displayedChannels)
+  }
+
+  private func rebuildDisplayedChannelsWithDuplicateCleanup(limit: Int) {
+    guard let results = makeLiveChannelQuery() else {
+      displayedChannels = []
+      displayedChannelTotal = 0
+      rebuildCurrentProgramCache(for: [])
+      return
+    }
+
     var rows: [CachedStream] = []
+    var seenDuplicateKeys = Set<String>()
     rows.reserveCapacity(limit)
     var total = 0
 
-    for channel in channels {
-      if let regionIds, !regionIds.contains(channel.categoryId) {
-        continue
-      }
-
-      if showFavoritesOnly && !favoriteIds.contains(channel.id) {
-        continue
-      }
-
-      if !isSearching, let selectedCategoryId, channel.categoryId != selectedCategoryId {
-        continue
-      }
-
-      if isSearching,
-         !TVChannelText.matches(
-          channel,
-          categoryName: categoryNames[channel.categoryId] ?? "Live TV",
-          search: trimmedSearchText
-         )
-      {
-        continue
-      }
+    for channel in results {
+      let duplicateKey = TVChannelText.duplicateKey(channel.name)
+      guard !seenDuplicateKeys.contains(duplicateKey) else { continue }
+      seenDuplicateKeys.insert(duplicateKey)
 
       total += 1
       if rows.count < limit {
@@ -1166,9 +1925,85 @@ private struct TVView: View {
       }
     }
 
-    displayedChannels = rows
+    displayedChannels = sortInMemoryIfNeeded(rows)
     displayedChannelTotal = total
-    rebuildCurrentProgramCache(for: rows)
+    rebuildCurrentProgramCache(for: displayedChannels)
+  }
+
+  private func makeLiveChannelQuery() -> Results<CachedStream>? {
+    guard let realm = try? Realm() else { return nil }
+
+    var results = realm.objects(CachedStream.self)
+      .filter("section == %@", KindMedia.live.rawValue)
+
+    if let regionIds = regionChannelCategoryIds {
+      results = results.filter("categoryId IN %@", Array(regionIds))
+    }
+
+    if showFavoritesOnly {
+      guard !favoriteLiveChannelIds.isEmpty else { return nil }
+      results = results.filter("id IN %@", Array(favoriteLiveChannelIds))
+    }
+
+    if showRecentOnly {
+      let recentIds = recentLiveChannelIds
+      guard !recentIds.isEmpty else { return nil }
+      results = results.filter("id IN %@", recentIds)
+    }
+
+    if !isSearching, let selectedCategoryId {
+      results = results.filter("categoryId == %@", selectedCategoryId)
+    }
+
+    if isSearching {
+      results = applySearchFilter(to: results)
+    }
+
+    switch sortMode {
+    case .az:
+      results = results.sorted(byKeyPath: "name", ascending: true)
+    case .liveNow:
+      results = results
+        .filter("NOT name CONTAINS[c] %@", "NO EVENT STREAMING")
+        .sorted(byKeyPath: "name", ascending: true)
+    case .playlist:
+      break
+    }
+
+    return results
+  }
+
+  private func applySearchFilter(to results: Results<CachedStream>) -> Results<CachedStream> {
+    let search = trimmedSearchText
+    let matchingCategoryIds = categoryNameCache
+      .filter { $0.value.localizedCaseInsensitiveContains(search) }
+      .map(\.key)
+
+    if matchingCategoryIds.isEmpty {
+      return results.filter(
+        "name CONTAINS[c] %@ OR streamType CONTAINS[c] %@",
+        search,
+        search
+      )
+    }
+
+    return results.filter(
+      "name CONTAINS[c] %@ OR streamType CONTAINS[c] %@ OR categoryId IN %@",
+      search,
+      search,
+      matchingCategoryIds
+    )
+  }
+
+  private func sortInMemoryIfNeeded(_ rows: [CachedStream]) -> [CachedStream] {
+    switch sortMode {
+    case .liveNow:
+      return rows
+    case .az:
+      return rows
+    case .playlist:
+      return rows
+    }
   }
 
   private func rebuildCurrentProgramCache(for channels: [CachedStream]) {
@@ -1183,17 +2018,37 @@ private struct TVView: View {
     }
 
     let now = Date()
-    var values: [Int: LiveProgram] = [:]
+    var currentByStreamId: [Int: CachedEPGProgram] = [:]
+    var nextByStreamId: [Int: CachedEPGProgram] = [:]
+
     for program in epgPrograms where streamIds.contains(program.streamId) {
-      guard values[program.streamId] == nil else { continue }
       if program.startDate <= now, program.endDate > now {
-        values[program.streamId] = LiveProgram(
-          title: program.title,
-          startDate: program.startDate,
-          endDate: program.endDate
-        )
+        currentByStreamId[program.streamId] = program
+      } else if program.startDate > now {
+        if let existing = nextByStreamId[program.streamId] {
+          if program.startDate < existing.startDate {
+            nextByStreamId[program.streamId] = program
+          }
+        } else {
+          nextByStreamId[program.streamId] = program
+        }
       }
     }
+
+    var values: [Int: LiveProgram] = [:]
+    for streamId in streamIds {
+      guard let current = currentByStreamId[streamId] else { continue }
+      let next = nextByStreamId[streamId]
+      values[streamId] = LiveProgram(
+        title: current.title,
+        startDate: current.startDate,
+        endDate: current.endDate,
+        nextTitle: next?.title,
+        nextStartDate: next?.startDate,
+        nextEndDate: next?.endDate
+      )
+    }
+
     currentProgramsByStreamId = values
   }
 
@@ -1204,6 +2059,7 @@ private struct TVView: View {
 
     guard !trimmedValue.isEmpty else {
       effectiveSearchText = ""
+      resetChannelPaging()
       rebuildDisplayedChannels()
       selectFirstChannelIfNeeded(force: true)
       refreshVisibleEPGIfNeeded()
@@ -1215,6 +2071,7 @@ private struct TVView: View {
       guard !Task.isCancelled else { return }
       await MainActor.run {
         effectiveSearchText = value
+        resetChannelPaging()
         rebuildDisplayedChannels()
         selectFirstChannelIfNeeded(force: true)
         refreshVisibleEPGIfNeeded()
@@ -1252,6 +2109,7 @@ private struct TVView: View {
     withAnimation(.snappy) {
       selectedChannel = channel
     }
+    rememberRecentChannel(channel)
     if !requestedEPGStreamIds.contains(channel.id), !hasFreshEPG(for: channel.id) {
       fetchEPG(for: [channel.id])
     }
@@ -1262,6 +2120,7 @@ private struct TVView: View {
       selectedChannel = channel
       inlinePlayingChannelId = channel.id
     }
+    rememberRecentChannel(channel)
     if !requestedEPGStreamIds.contains(channel.id), !hasFreshEPG(for: channel.id) {
       fetchEPG(for: [channel.id])
     }
@@ -1278,10 +2137,17 @@ private struct TVView: View {
   private func openFullscreen(_ channel: CachedStream) {
     inlinePlayingChannelId = nil
     currentID = channel.id
+    rememberRecentChannel(channel)
     selectedStreamURL = URL(string: channel.streamURL())
     DispatchQueue.main.async {
       showPlayer = true
     }
+  }
+
+  private func rememberRecentChannel(_ channel: CachedStream) {
+    var ids = recentLiveChannelIds.filter { $0 != channel.id }
+    ids.insert(channel.id, at: 0)
+    recentLiveChannelIdsRaw = ids.prefix(30).map(String.init).joined(separator: ",")
   }
 
   private func refreshVisibleEPGIfNeeded() {
@@ -1302,12 +2168,18 @@ private struct TVView: View {
   }
 
   private func fetchEPG(for streamIds: [Int]) {
-    guard !streamIds.isEmpty, !isRefreshingEPG else { return }
+    // `requestedEPGStreamIds` tracks in-flight fetches: skip ids already in flight
+    // so we don't duplicate work, but never gate on a single global flag — that
+    // silently dropped EPG fetches requested while another batch was running, so a
+    // channel tapped mid-refresh could be left with no program info.
+    let pending = streamIds.filter { !requestedEPGStreamIds.contains($0) }
+    guard !pending.isEmpty else { return }
+
+    pending.forEach { requestedEPGStreamIds.insert($0) }
     isRefreshingEPG = true
-    streamIds.forEach { requestedEPGStreamIds.insert($0) }
 
     Task {
-      for streamId in streamIds {
+      for streamId in pending {
         do {
           let response = try await fetchShortEPG(streamId: streamId)
           await cache(response.epgListings, streamId: streamId)
@@ -1317,8 +2189,12 @@ private struct TVView: View {
       }
 
       await MainActor.run {
+        // Clear the in-flight marks regardless of outcome: successful ids now have
+        // fresh EPG (so `hasFreshEPG` keeps them from being re-fetched), while failed
+        // ids become eligible to retry on the next select/scroll instead of sticking.
+        pending.forEach { requestedEPGStreamIds.remove($0) }
         rebuildCurrentProgramCache(for: displayedChannels)
-        isRefreshingEPG = false
+        isRefreshingEPG = !requestedEPGStreamIds.isEmpty
       }
     }
   }
@@ -1381,6 +2257,9 @@ private struct LiveProgram {
   let title: String
   let startDate: Date
   let endDate: Date
+  let nextTitle: String?
+  let nextStartDate: Date?
+  let nextEndDate: Date?
 }
 
 private struct GuidePreviewPlayer: View {
@@ -1388,130 +2267,226 @@ private struct GuidePreviewPlayer: View {
   let program: LiveProgram?
   let categoryName: String
   let isPlayingInline: Bool
+  let canCatchUp: Bool
   let onPlayInline: () -> Void
   let onFullscreen: () -> Void
+  let onCatchUp: () -> Void
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      ZStack {
-        if let channel {
-          ZStack {
-            Color.black
+    VStack(spacing: 0) {
+      videoArea
+      if channel != nil {
+        footer
+      }
+    }
+    .background(Color.white.opacity(0.05))
+    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: 18, style: .continuous)
+        .stroke(.white.opacity(0.08), lineWidth: 1)
+    }
+    .shadow(color: .black.opacity(0.35), radius: 14, x: 0, y: 8)
+  }
 
-            if isPlayingInline, let url = URL(string: channel.streamURL()) {
-              VideoPlayerView(streamURL: url, id: channel.id, kind: .live)
-                .id(channel.id)
-            } else if let imagePath = channel.getImage(), !imagePath.isEmpty, let url = URL(string: imagePath) {
-              AsyncImage(url: url, placeholder: {
-                previewPlaceholder
-              }, content: { image in
-                image
-                  .resizable()
-                  .scaledToFit()
-                  .padding(34)
-              })
-            } else {
-              previewPlaceholder
-            }
-          }
-        } else {
-          ZStack {
-            Color.black
-            VStack(spacing: 8) {
-              Image(systemName: "tv")
-                .font(.system(size: 30, weight: .semibold))
-              Text("Select a channel")
-                .font(.subheadline.weight(.semibold))
-            }
-            .foregroundStyle(.white.opacity(0.6))
-          }
-        }
-      }
-      .aspectRatio(16.0 / 9.0, contentMode: .fit)
-      .frame(maxWidth: .infinity)
-      .background(.black)
-      .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-      .overlay(alignment: .topLeading) {
-        if channel != nil {
-          HStack(spacing: 5) {
-            Circle().fill(.red).frame(width: 7, height: 7)
-            Text("LIVE")
-              .font(.caption2.weight(.heavy))
-              .foregroundStyle(.white)
-          }
-          .padding(.horizontal, 9)
-          .padding(.vertical, 5)
-          .background(.black.opacity(0.55), in: Capsule())
-          .padding(10)
-        }
-      }
-      .overlay(alignment: .bottomTrailing) {
-        if channel != nil {
-          Button(action: onFullscreen) {
-            Image(systemName: "arrow.up.left.and.arrow.down.right")
-              .font(.system(size: 14, weight: .bold))
-              .foregroundStyle(.white)
-              .frame(width: 34, height: 34)
-              .background(.black.opacity(0.55), in: Circle())
-          }
-          .buttonStyle(.plain)
-          .padding(10)
-        }
-      }
-      .overlay {
-        if channel != nil, !isPlayingInline {
-          Button(action: onPlayInline) {
-            HStack(spacing: 8) {
-              Image(systemName: "play.fill")
-                .font(.system(size: 14, weight: .bold))
-              Text("Play")
-                .font(.system(size: 15, weight: .bold))
-            }
-            .foregroundStyle(.black)
-            .padding(.horizontal, 18)
-            .frame(height: 44)
-            .background(.white, in: Capsule())
-          }
-          .buttonStyle(.plain)
-        }
-      }
+  // MARK: - Video
+
+  private var videoArea: some View {
+    ZStack {
+      Color.black
 
       if let channel {
-        VStack(alignment: .leading, spacing: 4) {
-          Text(TVChannelText.cleanName(channel.name))
-            .font(.system(size: 18, weight: .bold))
+        if isPlayingInline, let url = URL(string: channel.streamURL()) {
+          VideoPlayerView(streamURL: url, id: channel.id, kind: .live, showsControls: false)
+            .id(channel.id)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
+        } else if let imagePath = channel.getImage(), !imagePath.isEmpty, let url = URL(string: imagePath) {
+          previewBackdrop
+          AsyncImage(url: url, placeholder: {
+            previewPlaceholder
+          }, content: { image in
+            image
+              .resizable()
+              .scaledToFit()
+              .frame(maxWidth: 180, maxHeight: 78)
+              .opacity(0.52)
+          })
+        } else {
+          previewPlaceholder
+        }
+      } else {
+        VStack(spacing: 8) {
+          Image(systemName: "tv").font(.system(size: 30, weight: .semibold))
+          Text("Select a channel").font(.subheadline.weight(.semibold))
+        }
+        .foregroundStyle(.white.opacity(0.6))
+      }
+    }
+    .aspectRatio(1.95, contentMode: .fit)
+    .frame(maxWidth: .infinity)
+    .clipped()
+    .overlay(alignment: .topLeading) {
+      if channel != nil { liveBadge.padding(10) }
+    }
+    .overlay(alignment: .bottomTrailing) {
+      if channel != nil { fullscreenButton.padding(10) }
+    }
+    .overlay {
+      if channel != nil, !isPlayingInline { centerPlayButton }
+    }
+    .contentShape(Rectangle())
+    .onTapGesture {
+      if isPlayingInline { onFullscreen() }
+    }
+  }
+
+  private var liveBadge: some View {
+    HStack(spacing: 5) {
+      Circle().fill(.red).frame(width: 7, height: 7)
+      Text("LIVE").font(.caption2.weight(.heavy)).foregroundStyle(.white)
+    }
+    .padding(.horizontal, 9)
+    .padding(.vertical, 5)
+    .background(.black.opacity(0.55), in: Capsule())
+  }
+
+  private var fullscreenButton: some View {
+    Button(action: onFullscreen) {
+      Image(systemName: "arrow.up.left.and.arrow.down.right")
+        .font(.system(size: 14, weight: .bold))
+        .foregroundStyle(.white)
+        .frame(width: 34, height: 34)
+        .background(.black.opacity(0.55), in: Circle())
+    }
+    .buttonStyle(.plain)
+  }
+
+  private var centerPlayButton: some View {
+    Button(action: onPlayInline) {
+      Image(systemName: "play.fill")
+        .font(.system(size: 22, weight: .bold))
+        .foregroundStyle(.white)
+        .offset(x: 1)
+        .frame(width: 62, height: 62)
+        .background(.black.opacity(0.4), in: Circle())
+        .overlay { Circle().stroke(.white.opacity(0.75), lineWidth: 2) }
+    }
+    .buttonStyle(.plain)
+  }
+
+  // MARK: - Footer (channel info + progress + catch-up)
+
+  private var footer: some View {
+    VStack(alignment: .leading, spacing: 9) {
+      HStack(spacing: 12) {
+        logoSquare
+        VStack(alignment: .leading, spacing: 3) {
+          Text(channel.map { TVChannelText.cleanName($0.name) } ?? "")
+            .font(.system(size: 16, weight: .bold))
             .foregroundStyle(.white)
             .lineLimit(1)
-
-          Text(TVChannelText.status(channelName: channel.name, program: program))
+          Text(channel.map { TVChannelText.status(channelName: $0.name, program: program) } ?? "")
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.78))
+            .foregroundStyle(.white.opacity(0.7))
             .lineLimit(1)
+        }
+        Spacer(minLength: 0)
 
-          Text(subtitle)
-            .font(.caption.weight(.medium))
-            .foregroundStyle(.white.opacity(0.5))
-            .lineLimit(1)
+        Button(action: {
+          if canCatchUp { onCatchUp() }
+        }) {
+          HStack(spacing: 6) {
+            Image(systemName: "clock.arrow.circlepath")
+            Text("Catch-up")
+          }
+          .font(.caption.weight(.bold))
+          .foregroundStyle(.white.opacity(canCatchUp ? 0.92 : 0.50))
+          .padding(.horizontal, 10)
+          .frame(height: 30)
+          .background(.white.opacity(canCatchUp ? 0.10 : 0.05), in: Capsule())
+          .overlay { Capsule().stroke(.white.opacity(0.12), lineWidth: 1) }
+        }
+        .buttonStyle(.plain)
+        .disabled(!canCatchUp)
+      }
+
+      if let program {
+        VStack(spacing: 6) {
+          GeometryReader { geo in
+            ZStack(alignment: .leading) {
+              Capsule().fill(.white.opacity(0.15))
+              Capsule().fill(.red).frame(width: geo.size.width * progressFraction(program))
+            }
+          }
+          .frame(height: 4)
+
+          HStack {
+            Text(GuideTime.range(program.startDate, program.endDate))
+            Spacer()
+            Text(timeLeft(program))
+          }
+          .font(.caption.weight(.medium))
+          .foregroundStyle(.white.opacity(0.5))
         }
       }
     }
+    .padding(12)
+  }
+
+  private var logoSquare: some View {
+    ZStack {
+      if let channel, let imagePath = channel.getImage(), !imagePath.isEmpty, let url = URL(string: imagePath) {
+        AsyncImage(url: url, placeholder: {
+          logoFallback
+        }, content: { image in
+          image.resizable().scaledToFit().padding(6)
+        })
+      } else {
+        logoFallback
+      }
+    }
+    .frame(width: 42, height: 42)
+    .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+  }
+
+  private var logoFallback: some View {
+    Image(systemName: "tv")
+      .font(.system(size: 18, weight: .semibold))
+      .foregroundStyle(.white.opacity(0.7))
+  }
+
+  private func progressFraction(_ program: LiveProgram) -> CGFloat {
+    let total = program.endDate.timeIntervalSince(program.startDate)
+    guard total > 0 else { return 0 }
+    let elapsed = Date().timeIntervalSince(program.startDate)
+    return min(max(elapsed / total, 0), 1)
+  }
+
+  private func timeLeft(_ program: LiveProgram) -> String {
+    let remaining = program.endDate.timeIntervalSince(Date())
+    guard remaining > 0 else { return "Ended" }
+    let minutes = Int(remaining / 60)
+    return minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m left" : "\(minutes)m left"
   }
 
   private var previewPlaceholder: some View {
     VStack(spacing: 10) {
-      Image(systemName: "play.rectangle")
-        .font(.system(size: 34, weight: .semibold))
-      Text("Tap play to watch")
-        .font(.subheadline.weight(.semibold))
+      Image(systemName: "play.rectangle").font(.system(size: 34, weight: .semibold))
+      Text("Tap play to watch").font(.subheadline.weight(.semibold))
     }
     .foregroundStyle(.white.opacity(0.62))
   }
 
-  private var subtitle: String {
-    guard let program else {
-      return "\(categoryName) • Tap fullscreen to watch"
-    }
-    return "Now: \(GuideTime.range(program.startDate, program.endDate)) • \(categoryName)"
+  private var previewBackdrop: some View {
+    LinearGradient(
+      colors: [
+        .black,
+        .red.opacity(0.16),
+        .black.opacity(0.92),
+      ],
+      startPoint: .topLeading,
+      endPoint: .bottomTrailing
+    )
   }
 }
 
@@ -1554,24 +2529,31 @@ private struct GuideChannelRow: View {
       Button(action: onSelect) {
         HStack(spacing: 12) {
           logo
-            .frame(width: 52, height: 52)
+            .frame(width: 56, height: 56)
             .background(.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
           VStack(alignment: .leading, spacing: 4) {
             Text(TVChannelText.cleanName(channel.name))
-              .font(.system(size: 15, weight: .bold))
+              .font(.system(size: 16, weight: .bold))
               .foregroundStyle(.white)
               .lineLimit(1)
 
             Text(TVChannelText.status(channelName: channel.name, program: program))
-              .font(.caption.weight(.semibold))
+              .font(.system(size: 13, weight: .semibold))
               .foregroundStyle(.white.opacity(0.62))
               .lineLimit(1)
 
-            Text(categoryName)
-              .font(.caption2.weight(.semibold))
-              .foregroundStyle(.white.opacity(0.42))
+            Text(GuideTime.nowNextLine(program))
+              .font(.system(size: 11, weight: .semibold))
+              .foregroundStyle(.white.opacity(0.46))
               .lineLimit(1)
+
+            HStack(spacing: 5) {
+              Circle().fill(.red).frame(width: 6, height: 6)
+              Text("LIVE")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.red.opacity(0.9))
+            }
           }
 
           Spacer(minLength: 4)
@@ -1582,28 +2564,108 @@ private struct GuideChannelRow: View {
 
       Button(action: onToggleFavorite) {
         Image(systemName: isFavorite ? "star.fill" : "star")
-          .font(.system(size: 15, weight: .semibold))
+          .font(.system(size: 17, weight: .semibold))
           .foregroundStyle(isFavorite ? .yellow : .white.opacity(0.68))
-          .frame(width: 34, height: 34)
+          .frame(width: 42, height: 42)
           .background(.white.opacity(0.07), in: Circle())
       }
       .buttonStyle(.plain)
 
       Button(action: onPlay) {
         Image(systemName: "play.fill")
-          .font(.system(size: 13, weight: .bold))
+          .font(.system(size: 15, weight: .bold))
           .foregroundStyle(.white)
-          .frame(width: 36, height: 36)
+          .frame(width: 46, height: 46)
           .background(.red, in: Circle())
       }
       .buttonStyle(.plain)
     }
-    .padding(10)
+    .padding(.horizontal, 12)
+    .padding(.vertical, 11)
+    .frame(minHeight: 82)
     .background(fillColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     .overlay {
       RoundedRectangle(cornerRadius: 14, style: .continuous)
         .stroke(strokeColor, lineWidth: 1)
     }
+  }
+}
+
+private struct LiveNowChannelCard: View {
+  let channel: CachedStream
+  let program: LiveProgram?
+  let isSelected: Bool
+  let onSelect: () -> Void
+
+  var body: some View {
+    Button(action: onSelect) {
+      HStack(spacing: 9) {
+        logo
+          .frame(width: 42, height: 42)
+          .background(.black.opacity(0.34), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+        VStack(alignment: .leading, spacing: 4) {
+          Text(TVChannelText.cleanName(channel.name))
+            .font(.caption.weight(.bold))
+            .foregroundStyle(.white)
+            .lineLimit(1)
+
+          Text(TVChannelText.status(channelName: channel.name, program: program))
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.62))
+            .lineLimit(1)
+
+          HStack(spacing: 5) {
+            Circle().fill(.red).frame(width: 5, height: 5)
+            Text("LIVE")
+              .font(.system(size: 9, weight: .heavy))
+              .foregroundStyle(.red)
+          }
+
+          GeometryReader { geo in
+            ZStack(alignment: .leading) {
+              Capsule().fill(.white.opacity(0.12))
+              Capsule()
+                .fill(.red)
+                .frame(width: geo.size.width * progressFraction)
+            }
+          }
+          .frame(height: 3)
+        }
+      }
+      .padding(9)
+      .frame(width: 188, height: 78)
+      .background(isSelected ? .red.opacity(0.15) : .white.opacity(0.06), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+      .overlay {
+        RoundedRectangle(cornerRadius: 13, style: .continuous)
+          .stroke(isSelected ? .red.opacity(0.55) : .white.opacity(0.08), lineWidth: 1)
+      }
+    }
+    .buttonStyle(.plain)
+  }
+
+  @ViewBuilder
+  private var logo: some View {
+    if let imageUrl = channel.getImage(), !imageUrl.isEmpty, let url = URL(string: imageUrl) {
+      AsyncImage(url: url, placeholder: {
+        Image(systemName: "tv").foregroundStyle(.white.opacity(0.6))
+      }, content: { image in
+        image.resizable().scaledToFit()
+      })
+      .padding(6)
+    } else {
+      Image(systemName: "tv")
+        .font(.system(size: 16, weight: .semibold))
+        .foregroundStyle(.white.opacity(0.7))
+    }
+  }
+
+  private var progressFraction: CGFloat {
+    guard let program else { return 0.2 }
+    let total = program.endDate.timeIntervalSince(program.startDate)
+    guard total > 0 else { return 0.2 }
+    let elapsed = Date().timeIntervalSince(program.startDate)
+    return min(max(elapsed / total, 0.08), 1)
   }
 }
 
@@ -1620,13 +2682,15 @@ private struct LiveTVCategoryBar: View {
   let options: [LiveTVCategoryOption]
   let selectedCategoryId: String?
   let showFavoritesOnly: Bool
+  let showRecentOnly: Bool
   let onSelect: (LiveTVCategoryOption) -> Void
+  let onFavorites: () -> Void
 
   var body: some View {
     ScrollView(.horizontal, showsIndicators: false) {
       HStack(spacing: 8) {
         ForEach(options, id: \.stableId) { option in
-          let isSelected = !showFavoritesOnly && selectedCategoryId == option.id
+          let isSelected = !showFavoritesOnly && !showRecentOnly && selectedCategoryId == option.id
 
           Button {
             onSelect(option)
@@ -1643,6 +2707,23 @@ private struct LiveTVCategoryBar: View {
           }
           .buttonStyle(.plain)
         }
+
+        Button(action: onFavorites) {
+          HStack(spacing: 6) {
+            Image(systemName: "star")
+              .font(.system(size: 11, weight: .bold))
+            Text("Favorites")
+          }
+          .font(.system(size: 14, weight: .bold))
+          .foregroundStyle(showFavoritesOnly ? .white : .white.opacity(0.72))
+          .padding(.horizontal, 14)
+          .frame(height: 36)
+          .background(showFavoritesOnly ? .red : .white.opacity(0.07), in: Capsule())
+          .overlay {
+            Capsule().stroke(.white.opacity(showFavoritesOnly ? 0.16 : 0.10), lineWidth: 1)
+          }
+        }
+        .buttonStyle(.plain)
       }
       .padding(.horizontal, 16)
     }
@@ -1691,7 +2772,7 @@ private struct LiveTVQuickSectionButton: View {
 }
 
 private enum TVChannelText {
-  static func matches(_ channel: CachedStream, categoryName: String, search: String) -> Bool {
+  static func matches(_ channel: CachedStream, categoryName: String, programTitle: String?, search: String) -> Bool {
     let query = normalizedSearch(search)
     guard !query.isEmpty else { return true }
 
@@ -1699,10 +2780,23 @@ private enum TVChannelText {
       channel.name,
       channel.streamType,
       categoryName,
+      programTitle ?? "",
     ]
     .joined(separator: " ")
 
     return normalizedSearch(searchableText).contains(query)
+  }
+
+  static func hasNoEvent(_ name: String) -> Bool {
+    name.localizedCaseInsensitiveContains("no event streaming")
+  }
+
+  static func duplicateKey(_ name: String) -> String {
+    normalizedSearch(cleanName(name))
+      .replacingOccurrences(of: " hd", with: "")
+      .replacingOccurrences(of: " fhd", with: "")
+      .replacingOccurrences(of: " 4k", with: "")
+      .replacingOccurrences(of: " 8k", with: "")
   }
 
   static func cleanName(_ name: String) -> String {
@@ -1760,9 +2854,24 @@ private enum GuideTime {
     "\(string(start)) - \(string(end))"
   }
 
+  static func nowNextLine(_ program: LiveProgram?) -> String {
+    guard let program else {
+      return "Now Live"
+    }
+
+    let now = "Now \(range(program.startDate, program.endDate))"
+    guard let nextStartDate = program.nextStartDate,
+          let nextEndDate = program.nextEndDate
+    else {
+      return now
+    }
+
+    return "\(now) • Next \(range(nextStartDate, nextEndDate))"
+  }
+
   static func string(_ date: Date) -> String {
     let formatter = DateFormatter()
-    formatter.dateFormat = "h:mm a"
+    formatter.dateFormat = "HH:mm"
     return formatter.string(from: date)
   }
 }

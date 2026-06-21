@@ -16,8 +16,10 @@ import GoogleCast
 func configureRealmSchema() {
   var config = Realm.Configuration.defaultConfiguration
   // Bump when the Realm object schema changes. Additive changes (new optional
-  // properties like CachedStream.genre) need no migration body — just the bump.
-  config.schemaVersion = 5
+  // properties like CachedStream.genre, CachedSeries.episodeCount, searchName)
+  // need no migration body — just the bump. Existing rows get an empty
+  // searchName until the playlist is reloaded; search falls back to `name`.
+  config.schemaVersion = 7
   Realm.Configuration.defaultConfiguration = config
 }
 

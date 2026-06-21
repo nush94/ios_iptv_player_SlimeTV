@@ -15,6 +15,7 @@ struct VideoPlayerView: UIViewControllerRepresentable {
   let id: Int
   let kind: KindMedia
   let fallbackURLs: [URL]
+  let showsControls: Bool
   let resumeTimeMilliseconds: Int32?
   let onPlaybackProgress: ((Int32, Int32) -> Void)?
 
@@ -23,6 +24,7 @@ struct VideoPlayerView: UIViewControllerRepresentable {
     id: Int,
     kind: KindMedia,
     fallbackURLs: [URL] = [],
+    showsControls: Bool = true,
     resumeTimeMilliseconds: Int32? = nil,
     onPlaybackProgress: ((Int32, Int32) -> Void)? = nil
   ) {
@@ -30,6 +32,7 @@ struct VideoPlayerView: UIViewControllerRepresentable {
     self.id = id
     self.kind = kind
     self.fallbackURLs = fallbackURLs
+    self.showsControls = showsControls
     self.resumeTimeMilliseconds = resumeTimeMilliseconds
     self.onPlaybackProgress = onPlaybackProgress
   }
@@ -42,6 +45,7 @@ struct VideoPlayerView: UIViewControllerRepresentable {
       id: id,
       kind: kind,
       fallbackURLs: fallbackURLs,
+      showsControls: showsControls,
       resumeTimeMilliseconds: resumeTimeMilliseconds,
       onPlaybackProgress: onPlaybackProgress
     )

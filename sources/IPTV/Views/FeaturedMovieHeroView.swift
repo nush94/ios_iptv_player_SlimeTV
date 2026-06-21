@@ -16,8 +16,8 @@ struct FeaturedMovieHeroView: View {
   @State private var showInfo = false
 
   private var isCompactHeight: Bool { verticalSizeClass == .compact }
-  private var heroHeight: CGFloat { isCompactHeight ? 300 : 500 }
-  private var titleSize: CGFloat { isCompactHeight ? 28 : 38 }
+  private var heroHeight: CGFloat { isCompactHeight ? 260 : 340 }
+  private var titleSize: CGFloat { isCompactHeight ? 28 : 34 }
 
   private var isFavorite: Bool {
     guard let movie else { return false }
@@ -52,27 +52,31 @@ struct FeaturedMovieHeroView: View {
 
   var body: some View {
     GeometryReader { proxy in
-      ZStack(alignment: .bottom) {
+      ZStack(alignment: .leading) {
         heroImage
           .frame(width: proxy.size.width, height: proxy.size.height)
           .clipped()
 
         LinearGradient(
-          colors: [.clear, .black.opacity(0.48), .black.opacity(0.96)],
+          colors: [.black.opacity(0.88), .black.opacity(0.58), .black.opacity(0.1)],
+          startPoint: .leading,
+          endPoint: .trailing
+        )
+
+        LinearGradient(
+          colors: [.black.opacity(0.02), .black.opacity(0.55)],
           startPoint: .top,
           endPoint: .bottom
         )
 
-        VStack(spacing: 16) {
-          Spacer()
-
+        VStack(alignment: .leading, spacing: 12) {
           Text(movie?.name.formatted() ?? "Your Movie Library")
             .font(.system(size: titleSize, weight: .heavy))
             .minimumScaleFactor(0.58)
             .lineLimit(2)
-            .multilineTextAlignment(.center)
+            .multilineTextAlignment(.leading)
             .foregroundStyle(.white)
-            .frame(width: max(proxy.size.width - 40, 1))
+            .frame(width: max(proxy.size.width * 0.58, 1), alignment: .leading)
             .shadow(color: .black.opacity(0.55), radius: 12, x: 0, y: 4)
 
           HStack(spacing: 8) {
@@ -86,34 +90,40 @@ struct FeaturedMovieHeroView: View {
             }
 
             Text("•")
-            Text("Movie")
+            Text("4K")
           }
-          .font(.subheadline.weight(.semibold))
+          .font(.caption.weight(.semibold))
           .foregroundStyle(.white.opacity(0.82))
-          .frame(width: max(proxy.size.width - 40, 1))
+          .frame(width: max(proxy.size.width * 0.62, 1), alignment: .leading)
 
-          HStack(spacing: 22) {
-            heroIconButton(
-              title: "Favorites",
-              systemImage: isFavorite ? "star.fill" : "star",
-              tint: isFavorite ? .yellow : .white,
-              action: toggleFavorite
-            )
-            .disabled(movie == nil)
-            .opacity(movie == nil ? 0.45 : 1)
+          Text(heroDescription)
+            .font(.system(size: 13, weight: .medium))
+            .lineSpacing(3)
+            .foregroundStyle(.white.opacity(0.76))
+            .lineLimit(4)
+            .frame(width: max(proxy.size.width * 0.58, 1), alignment: .leading)
 
+          HStack(spacing: 18) {
             Button(action: playAction) {
               HStack(spacing: 8) {
                 Image(systemName: "play.fill")
                 Text("Play")
               }
-              .font(.title3.weight(.bold))
-              .foregroundStyle(.black)
-              .padding(.horizontal, 28)
-              .frame(height: 48)
-              .background(.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+              .font(.system(size: 17, weight: .bold))
+              .foregroundStyle(.white)
+              .frame(width: 118, height: 48)
+              .background(Color.red, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             .buttonStyle(.plain)
+            .disabled(movie == nil)
+            .opacity(movie == nil ? 0.45 : 1)
+
+            heroIconButton(
+              title: "Favorite",
+              systemImage: isFavorite ? "star.fill" : "star",
+              tint: isFavorite ? .yellow : .white,
+              action: toggleFavorite
+            )
             .disabled(movie == nil)
             .opacity(movie == nil ? 0.45 : 1)
 
@@ -123,21 +133,20 @@ struct FeaturedMovieHeroView: View {
             .disabled(movie == nil)
             .opacity(movie == nil ? 0.45 : 1)
           }
-          .frame(width: max(proxy.size.width - 40, 1))
-
-          // In landscape (compact height) the floating tab bar overlaps the
-          // bottom, so center the overlay instead of pinning it to the edge.
-          if isCompactHeight {
-            Spacer()
-          }
+          .frame(width: max(proxy.size.width - 40, 1), alignment: .leading)
         }
-        .frame(width: proxy.size.width, height: proxy.size.height)
-        .padding(.bottom, isCompactHeight ? 0 : 24)
+        .padding(20)
+        .frame(width: proxy.size.width, height: proxy.size.height, alignment: .bottomLeading)
       }
     }
     .frame(height: heroHeight)
     .frame(maxWidth: .infinity)
-    .clipShape(RoundedRectangle(cornerRadius: 0))
+    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .stroke(.white.opacity(0.12), lineWidth: 1)
+    }
+    .shadow(color: .black.opacity(0.35), radius: 18, x: 0, y: 10)
     .sheet(isPresented: $showInfo) {
       if let movie {
         MovieInfoView(movie: movie)
@@ -147,19 +156,11 @@ struct FeaturedMovieHeroView: View {
 
   @ViewBuilder
   private var heroImage: some View {
-    if let imageUrl = movie?.getImage(), let url = URL(string: imageUrl) {
-      AsyncImage(url: url, placeholder: {
-        fallbackHero
-      }, content: { image in
-        image
-          .resizable()
-          .scaledToFill()
-      })
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .clipped()
-    } else {
+    MovieArtworkView(stream: movie, preferBackdrop: true) {
       fallbackHero
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .clipped()
   }
 
   private var fallbackHero: some View {
@@ -178,6 +179,13 @@ struct FeaturedMovieHeroView: View {
     .clipped()
   }
 
+  private var heroDescription: String {
+    if let desc = movie?.desc, !desc.isEmpty {
+      return desc
+    }
+    return "Open details to read more, watch the trailer, and choose when to start playing."
+  }
+
   private func heroIconButton(
     title: String,
     systemImage: String,
@@ -187,13 +195,19 @@ struct FeaturedMovieHeroView: View {
     Button(action: action) {
       VStack(spacing: 5) {
         Image(systemName: systemImage)
-          .font(.system(size: 30, weight: .regular))
+          .font(.system(size: 23, weight: .regular))
           .foregroundStyle(tint)
+          .frame(width: 42, height: 42)
+          .background(.black.opacity(0.34), in: Circle())
+          .overlay {
+            Circle()
+              .stroke(.white.opacity(0.22), lineWidth: 1)
+          }
         Text(title)
-          .font(.footnote.weight(.medium))
+          .font(.caption2.weight(.medium))
           .foregroundStyle(.white)
       }
-      .frame(width: 78)
+      .frame(width: 62)
     }
     .buttonStyle(.plain)
   }

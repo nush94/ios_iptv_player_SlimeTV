@@ -12,6 +12,9 @@ public class CachedStream: Object, ObjectKeyIdentifiable {
   @Persisted public var identifier: ObjectId
   @Persisted(primaryKey: true) public var id: Int
   @Persisted public var name: String
+  /// Normalized form of `name` (lowercased, no spaces/punctuation) for
+  /// space/punctuation-insensitive search. Populated in `init`.
+  @Persisted public var searchName: String
   @Persisted public var streamType: String
   @Persisted public var streamIcon: String
   @Persisted(indexed: true) public var added: Date
@@ -32,14 +35,11 @@ public class CachedStream: Object, ObjectKeyIdentifiable {
     KindMedia(rawValue: section) ?? .vod
   }
 
-  public var searchName: String {
-    name.lowercased()
-  }
-
   public convenience init(id: Int, name: String, streamType: String, streamIcon: String, section: String, added: Date, categoryId: String, rating: String? = nil, desc: String? = nil, tmdb: String? = nil, tmdbImage: String? = nil, year: Int?, containerExtension: String? = "mkv", tvArchive: Bool = false, archiveDays: Int = 0) {
     self.init()
     self.id = id
     self.name = name
+    self.searchName = name.normalizedForSearch
     self.streamType = streamType
     self.streamIcon = streamIcon
     self.section = section

@@ -6,7 +6,7 @@
 //
 import SwiftUI
 
-public struct Stream: Identifiable, Decodable {
+public struct Stream: Identifiable, Decodable, Sendable {
   public let id: Int
   public let name: String
   public let streamType: String
@@ -112,7 +112,7 @@ public struct Stream: Identifiable, Decodable {
 }
 
 // Type pour gérer les cas String ou Number
-public enum FlexibleString: Decodable {
+public enum FlexibleString: Decodable, Sendable {
   case string(String)
   case number(Int)
 

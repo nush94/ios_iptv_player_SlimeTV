@@ -605,8 +605,10 @@ struct SerieDetailView: View {
 
   private func viewDidLoad() async {
     do {
-      serieDetail = try await loadSerieDetail()
+      let detail = try await loadSerieDetail()
+      serieDetail = detail
       loadErrorMessage = nil
+      recordEpisodeCount(detail)
     } catch {
       loadErrorMessage = "Could not load seasons for this show. Try reloading the playlist in Settings."
       print("Series detail load failed: \(error)")
@@ -616,6 +618,21 @@ struct SerieDetailView: View {
     }
     allSeasons = seasonNumbers()
     selectedSeason = resumeEpisode?.season ?? allSeasons.first
+  }
+
+  /// Records this show's episode count on its CachedSeries so the Shows rails
+  /// can hide shows with nothing to play. Opening a show is a free, authoritative
+  /// signal (we already fetched the full detail), so mark it checked here too.
+  private func recordEpisodeCount(_ detail: SeriesDetail) {
+    let count = detail.episodes?.values.reduce(0) { $0 + $1.count } ?? 0
+    guard let realm = try? Realm(),
+          let serie = realm.objects(CachedSeries.self).where({ $0.id == streamId }).first,
+          !serie.episodesChecked || serie.episodeCount != count
+    else { return }
+    try? realm.write {
+      serie.episodeCount = count
+      serie.episodesChecked = true
+    }
   }
 
   private func loadSerieDetail() async throws -> SeriesDetail {

@@ -7,7 +7,7 @@
 
 import Foundation
 
-public struct Series: Identifiable, Decodable {
+public struct Series: Identifiable, Decodable, Sendable {
   public let id: Int
   public let name: String
   public let seriesID: Int

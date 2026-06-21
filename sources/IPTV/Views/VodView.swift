@@ -8,6 +8,8 @@ public struct VodView: View {
   @State private var selectedStreamURL: URL? = nil
   @State private var selectedPlaybackContext: PlaybackProgressContext?
   @State private var selectedKind: KindMedia = .vod
+  @State private var selectedMovieForDetails: CachedStream?
+  @State private var showMovieDetails = false
   @State private var showErrorAlert: Bool = false
   @State private var errorMessage: String = ""
 
@@ -24,7 +26,9 @@ public struct VodView: View {
   // Category ids belonging to the selected region (nil = all regions).
   private var regionCategoryIds: [String]? {
     guard !region.isEmpty else { return nil }
-    return categories.filter { RegionTag.code(from: $0.name) == region }.map { $0.id }
+    let ids = Array(categories.filter { RegionTag.code(from: $0.name) == region }.map { $0.id })
+    // If this section has no categories for the chosen region, don't filter.
+    return ids.isEmpty ? nil : ids
   }
 
   // Movies constrained to the selected region (indexed query, so it's cheap).
@@ -52,15 +56,56 @@ public struct VodView: View {
     regionMovies.first
   }
 
+  private var currentYear: Int {
+    Calendar.current.component(.year, from: Date())
+  }
+
+  private var newMovieCutoffYear: Int {
+    max(currentYear - 2, 2024)
+  }
+
   // Newest first — `movies` is already sorted by `added` descending.
   private var recentlyAddedMovies: [CachedStream] {
-    Array(regionMovies.prefix(20))
+    limitedMovies(20)
+  }
+
+  private var newReleaseMovies: [CachedStream] {
+    let pool = limitedMovies(600)
+      .filter { movieYear($0) >= newMovieCutoffYear }
+
+    let ranked = pool.sorted {
+      let firstYear = movieYear($0)
+      let secondYear = movieYear($1)
+      if firstYear != secondYear { return firstYear > secondYear }
+      return $0.added > $1.added
+    }
+
+    return Array(ranked.prefix(24))
+  }
+
+  private var bestReviewedNewMovies: [CachedStream] {
+    let pool = limitedMovies(900)
+      .filter { movieYear($0) >= newMovieCutoffYear && ratingValue($0) > 0 }
+
+    let ranked = pool.sorted {
+      let firstRating = ratingValue($0)
+      let secondRating = ratingValue($1)
+      if firstRating != secondRating { return firstRating > secondRating }
+
+      let firstYear = movieYear($0)
+      let secondYear = movieYear($1)
+      if firstYear != secondYear { return firstYear > secondYear }
+
+      return $0.added > $1.added
+    }
+
+    return Array(ranked.prefix(24))
   }
 
   // Proxy for "trending": top-rated among the most recent additions
   // (bounded so we never sort the entire library on every render).
   private var trendingMovies: [CachedStream] {
-    let pool = Array(regionMovies.prefix(250))
+    let pool = limitedMovies(250)
     return Array(pool.sorted { ratingValue($0) > ratingValue($1) }.prefix(18))
   }
 
@@ -73,16 +118,38 @@ public struct VodView: View {
       return nil
     }
 
-    let related = movies
-      .where { $0.categoryId == anchor.categoryId }
-      .filter { $0.id != anchor.id }
+    var related: [CachedStream] = []
+    for movie in movies where movie.categoryId == anchor.categoryId && movie.id != anchor.id {
+      related.append(movie)
+      if related.count == 18 { break }
+    }
 
     guard related.count >= 3 else { return nil }
-    return ("Because you watched \(anchor.name.formatted())", Array(related.prefix(18)))
+    return ("Because you watched \(anchor.name.formatted())", related)
   }
 
   private func ratingValue(_ stream: CachedStream) -> Double {
     Double(stream.rating ?? "") ?? 0
+  }
+
+  private func movieYear(_ stream: CachedStream) -> Int {
+    if let year = stream.year, year > 0 {
+      return year
+    }
+    return StreamYearExtractor.year(from: stream.name) ?? 0
+  }
+
+  private func limitedMovies(_ limit: Int) -> [CachedStream] {
+    guard limit > 0 else { return [] }
+    var values: [CachedStream] = []
+    values.reserveCapacity(limit)
+
+    for movie in regionMovies {
+      values.append(movie)
+      if values.count == limit { break }
+    }
+
+    return values
   }
 
   // Movie genre rails, populated as background enrichment fills CachedStream.genre.
@@ -90,7 +157,11 @@ public struct VodView: View {
     var order: [String] = []
     var map: [String: [CachedStream]] = [:]
 
-    for movie in regionMovies.prefix(1200) {
+    var scanned = 0
+    for movie in regionMovies {
+      guard scanned < 1200 else { break }
+      scanned += 1
+
       guard let raw = movie.genre, !raw.isEmpty,
             let primary = splitGenres(raw).first
       else { continue }
@@ -122,10 +193,10 @@ public struct VodView: View {
     NavigationStack {
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 24) {
-          if categories.count == 0 || movies.count == 0 {
+          if categories.first == nil || movies.first == nil {
             LibraryEmptyStateView(
               systemImage: "film.stack",
-              title: categories.count == 0 ? "No movie categories yet" : "No movies loaded yet",
+              title: categories.first == nil ? "No movie categories yet" : "No movies loaded yet",
               message: "Add your Xtream playlist in Settings, then tap Save & Load Playlist."
             )
             .padding(.top, 48)
@@ -135,16 +206,14 @@ public struct VodView: View {
                 openMovie(featuredMovie)
               }
             }
-            .padding(.horizontal, -16)
-            .padding(.top, -8)
 
-            homeLastWatchedSection
+            homeContinueWatchingSection
 
-            MediaRailShelf(title: "Recently Added", streams: recentlyAddedMovies) { stream in
+            MediaRailShelf(title: "Best Reviewed New Movies", streams: bestReviewedNewMovies) { stream in
               openMovie(stream)
             }
 
-            MediaRailShelf(title: "Trending Now", streams: trendingMovies) { stream in
+            MediaRailShelf(title: "New Release Movies", streams: newReleaseMovies) { stream in
               openMovie(stream)
             }
 
@@ -152,6 +221,14 @@ public struct VodView: View {
               MediaRailShelf(title: because.title, streams: because.streams) { stream in
                 openMovie(stream)
               }
+            }
+
+            MediaRailShelf(title: "Trending Now", streams: trendingMovies) { stream in
+              openMovie(stream)
+            }
+
+            MediaRailShelf(title: "Recently Added", streams: recentlyAddedMovies) { stream in
+              openMovie(stream)
             }
 
             if !movieGenreRails.isEmpty {
@@ -173,6 +250,11 @@ public struct VodView: View {
       .background {
         HeroHeaderView(belowFold: true)
       }
+      .task {
+        // Backfill movie genres in the background (resumes across launches);
+        // without this the genre rails below stay empty for most of the catalog.
+        MovieGenreEnricher.enrichIfNeeded()
+      }
       .alert("Error", isPresented: $showErrorAlert) {
         Button("OK", role: .cancel) {
         }
@@ -192,18 +274,26 @@ public struct VodView: View {
             .ignoresSafeArea()
         }
       }
+      .fullScreenCover(isPresented: Binding(get: {
+        showMovieDetails && selectedMovieForDetails != nil
+      }, set: { showMovieDetails = $0 })) {
+        if let selectedMovieForDetails {
+          MovieInfoView(movie: selectedMovieForDetails)
+        }
+      }
     }
   }
 
   @ViewBuilder
-  private var homeLastWatchedSection: some View {
+  private var homeContinueWatchingSection: some View {
     let items = continueItems
       .filter { $0.kind == KindMedia.vod.rawValue || $0.kind == KindMedia.series.rawValue }
       .prefix(12)
 
     ContinueWatchingShelf(
-      title: "Last Watched",
-      items: Array(items)
+      title: "Continue Watching",
+      items: Array(items),
+      style: .compactHome
     ) { item in
       openContinueItem(item)
     }
@@ -230,6 +320,11 @@ public struct VodView: View {
   }
 
   private func openMovie(_ stream: CachedStream) {
+    selectedMovieForDetails = stream
+    showMovieDetails = true
+  }
+
+  private func playMovie(_ stream: CachedStream) {
     let streamURL = stream.streamURL()
     currentID = stream.id
     selectedKind = .vod
@@ -248,7 +343,7 @@ public struct VodView: View {
   private func openContinueItem(_ item: CachedPlaybackProgress) {
     let itemKind = KindMedia(rawValue: item.kind) ?? .vod
     if itemKind == .vod, let stream = movies.where({ $0.id == item.mediaId }).first {
-      openMovie(stream)
+      playMovie(stream)
       return
     }
 

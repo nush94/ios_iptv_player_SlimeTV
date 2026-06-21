@@ -7,6 +7,7 @@
 //
 
 import IPTVModels
+import Foundation
 import RealmSwift
 import SwiftUI
 
@@ -68,6 +69,18 @@ struct MediaRailShelf: View {
           RoundedRectangle(cornerRadius: 10, style: .continuous)
             .stroke(.white.opacity(0.08), lineWidth: 1)
         }
+        .overlay(alignment: .topLeading) {
+          if let rating = ratingText(stream) {
+            metadataBadge(systemImage: "star.fill", text: rating)
+              .padding(6)
+          }
+        }
+        .overlay(alignment: .topTrailing) {
+          if let year = yearText(stream) {
+            metadataBadge(systemImage: nil, text: year)
+              .padding(6)
+          }
+        }
 
       Text(stream.name.formatted())
         .font(.system(size: 12, weight: .medium))
@@ -80,13 +93,7 @@ struct MediaRailShelf: View {
 
   @ViewBuilder
   private func poster(_ stream: CachedStream) -> some View {
-    if let path = stream.getImage(), !path.isEmpty, let url = URL(string: path) {
-      AsyncImage(url: url, placeholder: {
-        placeholder
-      }, content: { image in
-        image.resizable().scaledToFill()
-      })
-    } else {
+    MovieArtworkView(stream: stream, preferBackdrop: false) {
       placeholder
     }
   }
@@ -98,6 +105,36 @@ struct MediaRailShelf: View {
         .font(.system(size: 22, weight: .semibold))
         .foregroundStyle(.white.opacity(0.45))
     }
+  }
+
+  private func ratingText(_ stream: CachedStream) -> String? {
+    guard let rating = Double(stream.rating ?? ""), rating > 0 else { return nil }
+    return String(format: "%.1f", rating)
+  }
+
+  private func yearText(_ stream: CachedStream) -> String? {
+    if let year = stream.year, year > 0 {
+      return "\(year)"
+    }
+    if let year = StreamYearExtractor.year(from: stream.name) {
+      return "\(year)"
+    }
+    return nil
+  }
+
+  private func metadataBadge(systemImage: String?, text: String) -> some View {
+    HStack(spacing: 3) {
+      if let systemImage {
+        Image(systemName: systemImage)
+          .font(.system(size: 8, weight: .black))
+      }
+      Text(text)
+        .font(.system(size: 9, weight: .heavy))
+    }
+    .foregroundStyle(.white)
+    .padding(.horizontal, 6)
+    .frame(height: 18)
+    .background(.black.opacity(0.64), in: Capsule())
   }
 
   // MARK: - Favorites (hold to add/remove, consistent with the rest of the app)
@@ -132,5 +169,93 @@ struct MediaRailShelf: View {
     } catch {
       print("Favorite toggle failed: \(error)")
     }
+  }
+}
+
+struct MovieArtworkView<Placeholder: View>: View {
+  let stream: CachedStream?
+  var preferBackdrop = false
+  @ViewBuilder let placeholder: () -> Placeholder
+
+  @State private var fetchedPosterPath: String?
+  @State private var fetchedBackdropPath: String?
+
+  private var preferredPath: String? {
+    if preferBackdrop {
+      return clean(fetchedBackdropPath) ?? clean(stream?.tmdbImage) ?? clean(fetchedPosterPath) ?? clean(stream?.streamIcon)
+    }
+    return clean(stream?.tmdbImage) ?? clean(fetchedPosterPath) ?? clean(stream?.streamIcon) ?? clean(fetchedBackdropPath)
+  }
+
+  var body: some View {
+    Group {
+      if let url = imageURL {
+        AsyncImage(url: url, placeholder: {
+          placeholder()
+        }, content: { image in
+          image.resizable().scaledToFill()
+        })
+      } else {
+        placeholder()
+      }
+    }
+    .task(id: stream?.id) {
+      await fetchBetterArtworkIfNeeded()
+    }
+  }
+
+  private var imageURL: URL? {
+    guard let preferredPath else { return nil }
+    if let url = URL(string: preferredPath) {
+      return url
+    }
+    return URL(string: preferredPath.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")
+  }
+
+  private func fetchBetterArtworkIfNeeded() async {
+    guard let stream,
+          stream.kindMedia == .vod,
+          fetchedPosterPath == nil,
+          fetchedBackdropPath == nil,
+          clean(stream.tmdbImage) == nil
+    else {
+      return
+    }
+
+    guard let info = try? await APIManager.shared.fetchVodInfo(streamId: stream.id) else {
+      return
+    }
+
+    await MainActor.run {
+      fetchedPosterPath = clean(info.poster)
+      fetchedBackdropPath = clean(info.backdrop)
+    }
+
+    if let poster = clean(info.poster) {
+      await cachePoster(poster, for: stream.id)
+    }
+  }
+
+  @MainActor
+  private func cachePoster(_ poster: String, for streamId: Int) async {
+    guard let realm = try? await Realm(),
+          let movie = realm.objects(CachedStream.self).where({ $0.id == streamId }).first,
+          clean(movie.tmdbImage) == nil
+    else {
+      return
+    }
+
+    try? realm.write {
+      movie.tmdbImage = poster
+    }
+  }
+
+  private func clean(_ value: String?) -> String? {
+    guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !value.isEmpty
+    else {
+      return nil
+    }
+    return value
   }
 }
