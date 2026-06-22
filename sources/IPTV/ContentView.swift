@@ -961,14 +961,13 @@ private enum LiveTVSortMode: String, CaseIterable, Identifiable {
 }
 
 private enum LiveSmartSection: String, CaseIterable, Identifiable {
-  case localNearYou, newsNearYou, sportsNearYou, national, international
+  // News/Sports are intentionally omitted — the category bar already has them.
+  case localNearYou, national, international
   var id: String { rawValue }
 
   var title: String {
     switch self {
     case .localNearYou: return "Near You"
-    case .newsNearYou: return "News"
-    case .sportsNearYou: return "Sports"
     case .national: return "National"
     case .international: return "International"
     }
@@ -977,8 +976,6 @@ private enum LiveSmartSection: String, CaseIterable, Identifiable {
   var systemImage: String {
     switch self {
     case .localNearYou: return "location.fill"
-    case .newsNearYou: return "newspaper.fill"
-    case .sportsNearYou: return "sportscourt.fill"
     case .national: return "flag.fill"
     case .international: return "globe"
     }
@@ -987,8 +984,6 @@ private enum LiveSmartSection: String, CaseIterable, Identifiable {
   func channels(country: String?, region: String?) -> [CachedStream] {
     switch self {
     case .localNearYou: return SmartSections.localChannels(country: country, region: region)
-    case .newsNearYou: return SmartSections.newsChannels(country: country)
-    case .sportsNearYou: return SmartSections.sportsChannels(country: country)
     case .national: return SmartSections.nationalChannels(country: country)
     case .international: return SmartSections.internationalChannels(country: country)
     }
@@ -1884,7 +1879,16 @@ private struct TVView: View {
   }
 
   private func matchingCategory(keywords: [String]) -> CategoryEntity? {
-    categories.first { category in
+    // Scope to the chosen country, so a default like "Sports" resolves to a
+    // category that actually exists in that country — otherwise the region +
+    // category filters intersect to nothing and the list goes blank.
+    let scoped: [CategoryEntity]
+    if let regionIds = regionChannelCategoryIds {
+      scoped = categories.filter { regionIds.contains($0.id) }
+    } else {
+      scoped = Array(categories)
+    }
+    return scoped.first { category in
       let name = category.name.lowercased()
       return keywords.contains { name.contains($0) }
     }
@@ -1959,6 +1963,10 @@ private struct TVView: View {
 
   private func applyDefaultLiveTVCategoryIfNeeded() {
     guard !showFavoritesOnly, !showRecentOnly, !isSearching else { return }
+
+    // When a specific country is chosen, show all of its channels rather than
+    // forcing a default category.
+    guard regionChannelCategoryIds == nil else { return }
 
     let availableIds = Set(categoryOptionsCache.compactMap(\.id))
     if let selectedCategoryId, availableIds.contains(selectedCategoryId) {
