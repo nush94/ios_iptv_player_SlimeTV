@@ -18,6 +18,21 @@ public struct SeriesView: View {
   @ObservedResults(CategoryEntity.self, where: ({ $0.section == KindMedia.series.rawValue })) var categories
   @ObservedResults(CachedSeries.self, where: ({ $0.section == KindMedia.series.rawValue })) var series
   @AppStorage("contentRegion") private var region: String = ""
+  @ObservedObject private var userRegion = UserRegionProvider.shared
+  @ObservedResults(CachedPlaybackProgress.self, sortDescriptor: SortDescriptor(keyPath: "updatedAt", ascending: false)) private var continueItems
+  @State private var showContinuePlayer = false
+  @State private var continueStreamURL: URL?
+  @State private var continuePlaybackContext: PlaybackProgressContext?
+  @State private var continueID = 9999
+
+  // MARK: - Smart sections (auto country, no manual region pick)
+
+  private var smartCountry: String? { userRegion.context.country }
+  private var forYouShowsSection: [CachedSeries] { SmartSections.forYouShows() }
+  private var trendingShowsSection: [CachedSeries] { SmartSections.trendingShows(country: smartCountry) }
+  private var bestReviewedShowsSection: [CachedSeries] { SmartSections.bestReviewedShows() }
+  private var newlyAddedShowsSection: [CachedSeries] { SmartSections.newlyAddedShows() }
+  private var internationalShowsSection: [CachedSeries] { SmartSections.internationalShows(country: smartCountry) }
 
   private var regionCategoryIds: [String]? {
     guard !region.isEmpty else { return nil }
@@ -33,66 +48,6 @@ public struct SeriesView: View {
     let playable = series.filter("episodesChecked == false OR episodeCount > 0")
     guard let ids = regionCategoryIds, !ids.isEmpty else { return playable }
     return playable.filter("categoryID IN %@", ids)
-  }
-
-  private var visibleCategories: [CategoryEntity] {
-    let scoped: [CategoryEntity]
-    if let ids = regionCategoryIds {
-      let allowed = Set(ids)
-      scoped = categories.filter { allowed.contains($0.id) }
-    } else {
-      scoped = Array(categories)
-    }
-
-    guard let selectedCategoryId else {
-      return Array(scoped.prefix(12))
-    }
-    return scoped.filter { $0.id == selectedCategoryId }
-  }
-
-  private var recentShows: [CachedSeries] {
-    limitedSeries(30)
-  }
-
-  private var currentYear: Int {
-    Calendar.current.component(.year, from: Date())
-  }
-
-  private var newShowCutoffYear: Int {
-    max(currentYear - 2, 2024)
-  }
-
-  private var newShows: [CachedSeries] {
-    let pool = scannedSeries(900)
-      .filter { seriesYear($0) >= newShowCutoffYear }
-
-    let ranked = pool.sorted {
-      let firstYear = seriesYear($0)
-      let secondYear = seriesYear($1)
-      if firstYear != secondYear { return firstYear > secondYear }
-      return $0.lastModified > $1.lastModified
-    }
-
-    return Array(ranked.prefix(24))
-  }
-
-  private var bestReviewedNewShows: [CachedSeries] {
-    let pool = scannedSeries(1200)
-      .filter { seriesYear($0) >= newShowCutoffYear && ratingValue($0) > 0 }
-
-    let ranked = pool.sorted {
-      let firstRating = ratingValue($0)
-      let secondRating = ratingValue($1)
-      if firstRating != secondRating { return firstRating > secondRating }
-
-      let firstYear = seriesYear($0)
-      let secondYear = seriesYear($1)
-      if firstYear != secondYear { return firstYear > secondYear }
-
-      return $0.lastModified > $1.lastModified
-    }
-
-    return Array(ranked.prefix(24))
   }
 
   // Group shows by genre (provider sends genre per series, e.g. "Comedy, Drama").
@@ -128,39 +83,6 @@ public struct SeriesView: View {
       .filter { !$0.isEmpty }
   }
 
-  private func limitedSeries(_ limit: Int) -> [CachedSeries] {
-    guard limit > 0 else { return [] }
-    var values: [CachedSeries] = []
-    values.reserveCapacity(limit)
-
-    for serie in regionSeries {
-      values.append(serie)
-      if values.count == limit { break }
-    }
-
-    return values
-  }
-
-  private func scannedSeries(_ limit: Int) -> [CachedSeries] {
-    limitedSeries(limit)
-  }
-
-  private func ratingValue(_ serie: CachedSeries) -> Double {
-    serie.rating ?? serie.rating5Based ?? 0
-  }
-
-  private func seriesYear(_ serie: CachedSeries) -> Int {
-    if let year = StreamYearExtractor.year(from: serie.releaseDate) {
-      return year
-    }
-    if let year = StreamYearExtractor.year(from: serie.name) {
-      return year
-    }
-
-    let year = Calendar.current.component(.year, from: serie.lastModified)
-    return year > 1900 ? year : 0
-  }
-
   public init(kindMedia: KindMedia) {
     self.kindMedia = kindMedia
   }
@@ -177,28 +99,26 @@ public struct SeriesView: View {
             )
             .padding(.top, 48)
           } else {
-            SeriesRailShelf(title: "Best Reviewed New Shows", series: bestReviewedNewShows) { serie in
-              openSeries(serie)
+            // Featured For You (req 11)
+            SeriesRailShelf(title: "Featured For You", series: forYouShowsSection) { openSeries($0) }
+
+            continueWatchingSection
+
+            if !trendingShowsSection.isEmpty {
+              SeriesRailShelf(title: "Trending Shows In Your Country", series: trendingShowsSection) { openSeries($0) }
             }
 
-            SeriesRailShelf(title: "New Shows", series: newShows) { serie in
-              openSeries(serie)
+            SeriesRailShelf(title: "Best Reviewed Shows", series: bestReviewedShowsSection) { openSeries($0) }
+
+            SeriesRailShelf(title: "Newly Added", series: newlyAddedShowsSection) { openSeries($0) }
+
+            if !internationalShowsSection.isEmpty {
+              SeriesRailShelf(title: "International Shows", series: internationalShowsSection) { openSeries($0) }
             }
 
-            if !genreRails.isEmpty {
-              ForEach(genreRails, id: \.genre) { rail in
-                SeriesRailShelf(title: rail.genre, series: rail.series) { serie in
-                  openSeries(serie)
-                }
-              }
-            } else if !recentShows.isEmpty {
-              SeriesRailShelf(title: "Shows", series: recentShows) { serie in
-                openSeries(serie)
-              }
-            } else {
-              ForEach(visibleCategories, id: \.id) { category in
-                makeSection(for: category)
-              }
+            // Genre rails kept below the personalized sections as a bonus.
+            ForEach(genreRails, id: \.genre) { rail in
+              SeriesRailShelf(title: rail.genre, series: rail.series) { openSeries($0) }
             }
           }
         }
@@ -224,7 +144,37 @@ public struct SeriesView: View {
           SerieDetailView(streamId: streamSelected)
         }
       })
+      .fullScreenCover(isPresented: Binding(get: {
+        showContinuePlayer && continueStreamURL != nil
+      }, set: { showContinuePlayer = $0 })) {
+        if let continueStreamURL {
+          ViewPlayerContent(
+            mediaURL: continueStreamURL,
+            id: continueID,
+            kind: .series,
+            playbackContext: continuePlaybackContext
+          )
+          .ignoresSafeArea()
+        }
+      }
     }
+  }
+
+  @ViewBuilder
+  private var continueWatchingSection: some View {
+    let items = continueItems
+      .filter { $0.kind == KindMedia.series.rawValue }
+      .prefix(12)
+    ContinueWatchingShelf(title: "Continue Watching", items: Array(items), style: .compactHome) { item in
+      openContinueItem(item)
+    }
+  }
+
+  private func openContinueItem(_ item: CachedPlaybackProgress) {
+    continueID = item.mediaId
+    continueStreamURL = URL(string: item.streamURL)
+    continuePlaybackContext = PlaybackProgressContext(progress: item)
+    showContinuePlayer = true
   }
 
   private func openSeries(_ serie: CachedSeries) {

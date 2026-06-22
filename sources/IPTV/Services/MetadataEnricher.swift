@@ -128,7 +128,10 @@ enum MetadataEnricher {
       movie.popularityScore = meta.popularity
       movie.trendingScore = meta.popularity
       movie.tmdb = String(meta.tmdbId)
-      if meta.rating > 0, movie.rating?.isEmpty != false { movie.rating = String(format: "%.1f", meta.rating) }
+      if meta.rating > 0 {
+        movie.ratingValue = meta.rating
+        if movie.rating?.isEmpty != false { movie.rating = String(format: "%.1f", meta.rating) }
+      }
       if let genre = meta.genre, movie.genre?.isEmpty != false { movie.genre = genre }
       if let poster = meta.posterURL, movie.tmdbImage?.isEmpty != false { movie.tmdbImage = poster }
       if let overview = meta.overview, movie.desc?.isEmpty != false { movie.desc = overview }

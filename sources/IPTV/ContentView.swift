@@ -958,6 +958,41 @@ private enum LiveTVSortMode: String, CaseIterable, Identifiable {
   }
 }
 
+private enum LiveSmartSection: String, CaseIterable, Identifiable {
+  case localNearYou, newsNearYou, sportsNearYou, national, international
+  var id: String { rawValue }
+
+  var title: String {
+    switch self {
+    case .localNearYou: return "Near You"
+    case .newsNearYou: return "News"
+    case .sportsNearYou: return "Sports"
+    case .national: return "National"
+    case .international: return "International"
+    }
+  }
+
+  var systemImage: String {
+    switch self {
+    case .localNearYou: return "location.fill"
+    case .newsNearYou: return "newspaper.fill"
+    case .sportsNearYou: return "sportscourt.fill"
+    case .national: return "flag.fill"
+    case .international: return "globe"
+    }
+  }
+
+  func channels(country: String?, region: String?) -> [CachedStream] {
+    switch self {
+    case .localNearYou: return SmartSections.localChannels(country: country, region: region)
+    case .newsNearYou: return SmartSections.newsChannels(country: country)
+    case .sportsNearYou: return SmartSections.sportsChannels(country: country)
+    case .national: return SmartSections.nationalChannels(country: country)
+    case .international: return SmartSections.internationalChannels(country: country)
+    }
+  }
+}
+
 private struct TVView: View {
   @ObservedResults(CategoryEntity.self, where: ({ $0.section == KindMedia.live.rawValue })) private var categories
   @ObservedResults(CachedStream.self, where: ({ $0.section == KindMedia.live.rawValue })) private var channels
@@ -985,6 +1020,16 @@ private struct TVView: View {
 
   private var isPlaylistConfigured: Bool {
     !apiHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  @ObservedObject private var userRegion = UserRegionProvider.shared
+  @State private var selectedLiveSmartSection: LiveSmartSection?
+
+  /// The smart section only applies when no other filter is active, so it
+  /// overrides cleanly without competing with category/favorites/recent/search.
+  private var activeLiveSmartSection: LiveSmartSection? {
+    guard selectedCategoryId == nil, !showFavoritesOnly, !showRecentOnly, !isSearching else { return nil }
+    return selectedLiveSmartSection
   }
 
   private var regionChannelCategoryIds: Set<String>? {
@@ -1038,6 +1083,10 @@ private struct TVView: View {
   }
 
   private var visibleChannelCount: Int {
+    if activeLiveSmartSection != nil {
+      return displayedChannelTotal
+    }
+
     if isSearching {
       return displayedChannelTotal
     }
@@ -1061,6 +1110,10 @@ private struct TVView: View {
   }
 
   private var channelSectionTitle: String {
+    if let section = activeLiveSmartSection {
+      return "\(section.title) Channels"
+    }
+
     if isSearching {
       return "Search Results"
     }
@@ -1247,6 +1300,9 @@ private struct TVView: View {
         .padding(.bottom, 10)
 
       categoryBar
+        .padding(.bottom, 10)
+
+      liveSmartSectionBar
         .padding(.bottom, 10)
 
       playlistOrganizerBar
@@ -1456,15 +1512,59 @@ private struct TVView: View {
       withAnimation(.snappy) {
         showFavoritesOnly = false
         showRecentOnly = false
+        selectedLiveSmartSection = nil
         selectedCategoryId = option.id
       }
     } onFavorites: {
       withAnimation(.snappy) {
         selectedCategoryId = nil
         showRecentOnly = false
+        selectedLiveSmartSection = nil
         showFavoritesOnly.toggle()
       }
     }
+  }
+
+  /// "Near You / News / Sports / National / International" sections for Live (req 12).
+  private var liveSmartSectionBar: some View {
+    ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: 8) {
+        ForEach(LiveSmartSection.allCases) { section in
+          Button {
+            selectLiveSmartSection(selectedLiveSmartSection == section ? nil : section)
+          } label: {
+            HStack(spacing: 5) {
+              Image(systemName: section.systemImage)
+                .font(.system(size: 11, weight: .bold))
+              Text(section.title)
+                .font(.system(size: 13, weight: .semibold))
+            }
+            .foregroundStyle(selectedLiveSmartSection == section ? .white : .white.opacity(0.7))
+            .padding(.horizontal, 12)
+            .frame(height: 32)
+            .background(selectedLiveSmartSection == section ? Color.red : .white.opacity(0.08), in: Capsule())
+            .overlay { Capsule().stroke(.white.opacity(0.12), lineWidth: 1) }
+          }
+          .buttonStyle(.plain)
+        }
+      }
+      .padding(.horizontal, 16)
+    }
+  }
+
+  private func selectLiveSmartSection(_ section: LiveSmartSection?) {
+    withAnimation(.snappy) {
+      selectedLiveSmartSection = section
+      if section != nil {
+        selectedCategoryId = nil
+        showFavoritesOnly = false
+        showRecentOnly = false
+      }
+    }
+    resetChannelPaging()
+    rebuildDisplayedChannels()
+    selectFirstChannelIfNeeded(force: true)
+    refreshVisibleEPGIfNeeded()
   }
 
   private var playlistOrganizerBar: some View {
@@ -1892,6 +1992,14 @@ private struct TVView: View {
   }
 
   private func rebuildDisplayedChannels() {
+    if let smart = activeLiveSmartSection {
+      let rows = smart.channels(country: userRegion.context.country, region: userRegion.context.region)
+      displayedChannels = rows
+      displayedChannelTotal = rows.count
+      rebuildCurrentProgramCache(for: displayedChannels)
+      return
+    }
+
     let limit = channelDisplayLimit
 
     guard !hideDuplicateChannels else {

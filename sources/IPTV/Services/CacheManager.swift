@@ -98,6 +98,7 @@ class CacheManager: CacheManagerProtocol {
       archiveDays: stream.archiveDays
     )
     applySmartMetadata(to: cached, name: stream.name)
+    cached.ratingValue = Double(stream.rating ?? "") ?? 0
     return cached
   }
 

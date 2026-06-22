@@ -41,6 +41,9 @@ public class CachedStream: Object, ObjectKeyIdentifiable {
   @Persisted public var voteCount: Int
   @Persisted public var trendingScore: Double
   @Persisted public var popularityScore: Double
+  /// Numeric rating (0-10) for sorted "Best Reviewed" queries — `rating` is a
+  /// free-form provider string, so this is the queryable form.
+  @Persisted public var ratingValue: Double
   @Persisted(indexed: true) public var forYouScore: Int
   /// Whether TMDB enrichment has been attempted (resumable matching).
   @Persisted public var metadataChecked: Bool

@@ -22,6 +22,16 @@ public struct VodView: View {
   @ObservedResults(CachedStream.self, where: ({ $0.section == KindMedia.vod.rawValue }), sortDescriptor: SortDescriptor(keyPath: "added", ascending: false)) var movies
   @ObservedResults(CachedPlaybackProgress.self, sortDescriptor: SortDescriptor(keyPath: "updatedAt", ascending: false)) var continueItems
   @AppStorage("contentRegion") private var region: String = ""
+  @ObservedObject private var userRegion = UserRegionProvider.shared
+
+  // MARK: - Smart sections (auto country, no manual region pick)
+
+  private var smartCountry: String? { userRegion.context.country }
+  private var featuredSmartMovie: CachedStream? { SmartSections.forYouMovies(limit: 1).first ?? featuredMovie }
+  private var trendingInYourCountry: [CachedStream] { SmartSections.trendingMovies(country: smartCountry) }
+  private var smartBestReviewedMovies: [CachedStream] { SmartSections.bestReviewedNewMovies() }
+  private var smartNewlyAddedMovies: [CachedStream] { SmartSections.newlyAddedMovies() }
+  private var internationalMoviesSection: [CachedStream] { SmartSections.internationalMovies(country: smartCountry) }
 
   // Category ids belonging to the selected region (nil = all regions).
   private var regionCategoryIds: [String]? {
@@ -37,119 +47,8 @@ public struct VodView: View {
     return movies.filter("categoryId IN %@", ids)
   }
 
-  private var visibleCategories: [CategoryEntity] {
-    let scoped: [CategoryEntity]
-    if let ids = regionCategoryIds {
-      let allowed = Set(ids)
-      scoped = categories.filter { allowed.contains($0.id) }
-    } else {
-      scoped = Array(categories)
-    }
-
-    guard let selectedCategoryId else {
-      return Array(scoped.prefix(12))
-    }
-    return scoped.filter { $0.id == selectedCategoryId }
-  }
-
   private var featuredMovie: CachedStream? {
     regionMovies.first
-  }
-
-  private var currentYear: Int {
-    Calendar.current.component(.year, from: Date())
-  }
-
-  private var newMovieCutoffYear: Int {
-    max(currentYear - 2, 2024)
-  }
-
-  // Newest first — `movies` is already sorted by `added` descending.
-  private var recentlyAddedMovies: [CachedStream] {
-    limitedMovies(20)
-  }
-
-  private var newReleaseMovies: [CachedStream] {
-    let pool = limitedMovies(600)
-      .filter { movieYear($0) >= newMovieCutoffYear }
-
-    let ranked = pool.sorted {
-      let firstYear = movieYear($0)
-      let secondYear = movieYear($1)
-      if firstYear != secondYear { return firstYear > secondYear }
-      return $0.added > $1.added
-    }
-
-    return Array(ranked.prefix(24))
-  }
-
-  private var bestReviewedNewMovies: [CachedStream] {
-    let pool = limitedMovies(900)
-      .filter { movieYear($0) >= newMovieCutoffYear && ratingValue($0) > 0 }
-
-    let ranked = pool.sorted {
-      let firstRating = ratingValue($0)
-      let secondRating = ratingValue($1)
-      if firstRating != secondRating { return firstRating > secondRating }
-
-      let firstYear = movieYear($0)
-      let secondYear = movieYear($1)
-      if firstYear != secondYear { return firstYear > secondYear }
-
-      return $0.added > $1.added
-    }
-
-    return Array(ranked.prefix(24))
-  }
-
-  // Proxy for "trending": top-rated among the most recent additions
-  // (bounded so we never sort the entire library on every render).
-  private var trendingMovies: [CachedStream] {
-    let pool = limitedMovies(250)
-    return Array(pool.sorted { ratingValue($0) > ratingValue($1) }.prefix(18))
-  }
-
-  // Recommend more from the category of whatever the user last watched.
-  private var becauseYouWatched: (title: String, streams: [CachedStream])? {
-    guard let anchorItem = continueItems.first(where: { $0.kind == KindMedia.vod.rawValue }),
-          let anchor = movies.where({ $0.id == anchorItem.mediaId }).first,
-          !anchor.categoryId.isEmpty
-    else {
-      return nil
-    }
-
-    var related: [CachedStream] = []
-    for movie in movies where movie.categoryId == anchor.categoryId && movie.id != anchor.id {
-      related.append(movie)
-      if related.count == 18 { break }
-    }
-
-    guard related.count >= 3 else { return nil }
-    return ("Because you watched \(anchor.name.formatted())", related)
-  }
-
-  private func ratingValue(_ stream: CachedStream) -> Double {
-    Double(stream.rating ?? "") ?? 0
-  }
-
-  private func movieYear(_ stream: CachedStream) -> Int {
-    if let year = stream.year, year > 0 {
-      return year
-    }
-    return StreamYearExtractor.year(from: stream.name) ?? 0
-  }
-
-  private func limitedMovies(_ limit: Int) -> [CachedStream] {
-    guard limit > 0 else { return [] }
-    var values: [CachedStream] = []
-    values.reserveCapacity(limit)
-
-    for movie in regionMovies {
-      values.append(movie)
-      if values.count == limit { break }
-    }
-
-    return values
   }
 
   // Movie genre rails, populated as background enrichment fills CachedStream.genre.
@@ -201,46 +100,28 @@ public struct VodView: View {
             )
             .padding(.top, 48)
           } else {
-            FeaturedMovieHeroView(movie: featuredMovie) {
-              if let featuredMovie {
-                openMovie(featuredMovie)
-              }
+            // Featured For You (req 10)
+            FeaturedMovieHeroView(movie: featuredSmartMovie) {
+              if let movie = featuredSmartMovie { openMovie(movie) }
             }
 
             homeContinueWatchingSection
 
-            MediaRailShelf(title: "Best Reviewed New Movies", streams: bestReviewedNewMovies) { stream in
-              openMovie(stream)
+            if !trendingInYourCountry.isEmpty {
+              MediaRailShelf(title: "Trending In Your Country", streams: trendingInYourCountry) { openMovie($0) }
             }
 
-            MediaRailShelf(title: "New Release Movies", streams: newReleaseMovies) { stream in
-              openMovie(stream)
+            MediaRailShelf(title: "Best Reviewed New Movies", streams: smartBestReviewedMovies) { openMovie($0) }
+
+            MediaRailShelf(title: "Newly Added", streams: smartNewlyAddedMovies) { openMovie($0) }
+
+            if !internationalMoviesSection.isEmpty {
+              MediaRailShelf(title: "International Movies", streams: internationalMoviesSection) { openMovie($0) }
             }
 
-            if let because = becauseYouWatched {
-              MediaRailShelf(title: because.title, streams: because.streams) { stream in
-                openMovie(stream)
-              }
-            }
-
-            MediaRailShelf(title: "Trending Now", streams: trendingMovies) { stream in
-              openMovie(stream)
-            }
-
-            MediaRailShelf(title: "Recently Added", streams: recentlyAddedMovies) { stream in
-              openMovie(stream)
-            }
-
-            if !movieGenreRails.isEmpty {
-              ForEach(movieGenreRails, id: \.genre) { rail in
-                MediaRailShelf(title: rail.genre, streams: rail.movies) { stream in
-                  openMovie(stream)
-                }
-              }
-            } else {
-              ForEach(visibleCategories, id: \.id) { category in
-                makeSection(for: category)
-              }
+            // Genre rails kept below the personalized sections as a bonus.
+            ForEach(movieGenreRails, id: \.genre) { rail in
+              MediaRailShelf(title: rail.genre, streams: rail.movies) { openMovie($0) }
             }
           }
         }
