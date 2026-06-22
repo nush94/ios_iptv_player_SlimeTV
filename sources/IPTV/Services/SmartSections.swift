@@ -122,24 +122,53 @@ enum SmartSections {
   }
 
   private static func nationalChannels(country: String?, sortedBy key: String, limit: Int) -> [CachedStream] {
+    let all = NSPredicate(format: "section == %@", live)
     guard let country, !country.isEmpty else {
-      return streams(NSPredicate(format: "section == %@", live), sortedBy: key, limit: limit)
+      return streams(all, sortedBy: key, limit: limit)
     }
-    return streams(NSPredicate(format: "section == %@ AND country ==[c] %@", live, country), sortedBy: key, limit: limit)
+    let inCountry = streams(
+      NSPredicate(format: "section == %@ AND country ==[c] %@", live, country),
+      sortedBy: key, limit: limit
+    )
+    if !inCountry.isEmpty { return inCountry }
+    // The user's detected country isn't represented in this playlist (e.g. a US
+    // device with a CA/EN playlist) — show the top available channels instead of
+    // a blank list.
+    return streams(all, sortedBy: key, limit: limit)
+  }
+
+  // MARK: - Adult content filter (keep adult clips off the home page)
+
+  static let adultNameTerms = ["[x]", "xxx", "+18", "18+", "porn", "woodman"]
+  static let adultGenreTerms = ["adult", "xxx", "porn", "erotic", "hentai"]
+
+  static func isAdult(name: String, genre: String?) -> Bool {
+    let lowerName = name.lowercased()
+    if adultNameTerms.contains(where: { lowerName.contains($0) }) { return true }
+    if let lowerGenre = genre?.lowercased(), adultGenreTerms.contains(where: { lowerGenre.contains($0) }) { return true }
+    return false
+  }
+
+  private static var adultExclusion: NSPredicate {
+    let matches = adultNameTerms.map { NSPredicate(format: "name CONTAINS[c] %@", $0) }
+      + adultGenreTerms.map { NSPredicate(format: "genre CONTAINS[c] %@", $0) }
+    return NSCompoundPredicate(notPredicateWithSubpredicate: NSCompoundPredicate(orPredicateWithSubpredicates: matches))
   }
 
   // MARK: - Shared helpers
 
   private static func streams(_ predicate: NSPredicate, sortedBy key: String, limit: Int) -> [CachedStream] {
     guard let realm = try? Realm() else { return [] }
-    let results = realm.objects(CachedStream.self).filter(predicate)
+    let combined = NSCompoundPredicate(andPredicateWithSubpredicates: [predicate, adultExclusion])
+    let results = realm.objects(CachedStream.self).filter(combined)
       .sorted(byKeyPath: key, ascending: key == "name")
     return Array(results.prefix(limit))
   }
 
   private static func shows(_ predicate: NSPredicate, sortedBy key: String, limit: Int) -> [CachedSeries] {
     guard let realm = try? Realm() else { return [] }
-    let results = realm.objects(CachedSeries.self).filter(predicate)
+    let combined = NSCompoundPredicate(andPredicateWithSubpredicates: [predicate, adultExclusion])
+    let results = realm.objects(CachedSeries.self).filter(combined)
       .sorted(byKeyPath: key, ascending: false)
     return Array(results.prefix(limit))
   }

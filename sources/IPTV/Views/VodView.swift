@@ -70,6 +70,7 @@ public struct VodView: View {
       guard scanned < 1200 else { break }
       scanned += 1
 
+      guard !SmartSections.isAdult(name: movie.name, genre: movie.genre) else { continue }
       guard let raw = movie.genre, !raw.isEmpty,
             let primary = splitGenres(raw).first
       else { continue }

@@ -69,6 +69,7 @@ public struct SeriesView: View {
       guard scanned < 1200 else { break }
       scanned += 1
 
+      guard !SmartSections.isAdult(name: serie.name, genre: serie.genre) else { continue }
       guard let primary = genres(from: serie.genre).first else { continue }
       if map[primary] == nil { order.append(primary) }
       map[primary, default: []].append(serie)
