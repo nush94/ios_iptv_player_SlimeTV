@@ -3,6 +3,15 @@ import IPTVModels
 import RealmSwift
 import SwiftUI
 
+private struct ShowHomeSections {
+  var forYou: [CachedSeries] = []
+  var trending: [CachedSeries] = []
+  var bestReviewed: [CachedSeries] = []
+  var newlyAdded: [CachedSeries] = []
+  var international: [CachedSeries] = []
+  var genreRails: [(genre: String, series: [CachedSeries])] = []
+}
+
 public struct SeriesView: View {
   @State private var showPlayer: Bool = false
   @State private var streamSelected: Int?
@@ -25,14 +34,13 @@ public struct SeriesView: View {
   @State private var continuePlaybackContext: PlaybackProgressContext?
   @State private var continueID = 9999
 
-  // MARK: - Smart sections (auto country, no manual region pick)
+  // MARK: - Smart sections (auto country). Cached in @State, refreshed on
+  // data/region changes — not per-render — so scrolling/tab switches stay smooth.
+
+  @State private var sections = ShowHomeSections()
+  @State private var sectionRefreshTask: Task<Void, Never>?
 
   private var smartCountry: String? { userRegion.context.country }
-  private var forYouShowsSection: [CachedSeries] { SmartSections.forYouShows() }
-  private var trendingShowsSection: [CachedSeries] { SmartSections.trendingShows(country: smartCountry) }
-  private var bestReviewedShowsSection: [CachedSeries] { SmartSections.bestReviewedShows() }
-  private var newlyAddedShowsSection: [CachedSeries] { SmartSections.newlyAddedShows() }
-  private var internationalShowsSection: [CachedSeries] { SmartSections.internationalShows(country: smartCountry) }
 
   private var regionCategoryIds: [String]? {
     guard !region.isEmpty else { return nil }
@@ -52,7 +60,7 @@ public struct SeriesView: View {
 
   // Group shows by genre (provider sends genre per series, e.g. "Comedy, Drama").
   // Each show can land in multiple genre rails. Only genres with enough titles show.
-  private var genreRails: [(genre: String, series: [CachedSeries])] {
+  private func computeGenreRails() -> [(genre: String, series: [CachedSeries])] {
     var order: [String] = []
     var map: [String: [CachedSeries]] = [:]
 
@@ -83,6 +91,28 @@ public struct SeriesView: View {
       .filter { !$0.isEmpty }
   }
 
+  // MARK: - Section refresh
+
+  private func recomputeSections() {
+    var next = ShowHomeSections()
+    next.forYou = SmartSections.forYouShows()
+    next.trending = SmartSections.trendingShows(country: smartCountry)
+    next.bestReviewed = SmartSections.bestReviewedShows()
+    next.newlyAdded = SmartSections.newlyAddedShows()
+    next.international = SmartSections.internationalShows(country: smartCountry)
+    next.genreRails = computeGenreRails()
+    sections = next
+  }
+
+  private func scheduleSectionRefresh() {
+    sectionRefreshTask?.cancel()
+    sectionRefreshTask = Task { @MainActor in
+      try? await Task.sleep(nanoseconds: 1_200_000_000)
+      guard !Task.isCancelled else { return }
+      recomputeSections()
+    }
+  }
+
   public init(kindMedia: KindMedia) {
     self.kindMedia = kindMedia
   }
@@ -100,24 +130,24 @@ public struct SeriesView: View {
             .padding(.top, 48)
           } else {
             // Featured For You (req 11)
-            SeriesRailShelf(title: "Featured For You", series: forYouShowsSection) { openSeries($0) }
+            SeriesRailShelf(title: "Featured For You", series: sections.forYou) { openSeries($0) }
 
             continueWatchingSection
 
-            if !trendingShowsSection.isEmpty {
-              SeriesRailShelf(title: "Trending Shows In Your Country", series: trendingShowsSection) { openSeries($0) }
+            if !sections.trending.isEmpty {
+              SeriesRailShelf(title: "Trending Shows In Your Country", series: sections.trending) { openSeries($0) }
             }
 
-            SeriesRailShelf(title: "Best Reviewed Shows", series: bestReviewedShowsSection) { openSeries($0) }
+            SeriesRailShelf(title: "Best Reviewed Shows", series: sections.bestReviewed) { openSeries($0) }
 
-            SeriesRailShelf(title: "Newly Added", series: newlyAddedShowsSection) { openSeries($0) }
+            SeriesRailShelf(title: "Newly Added", series: sections.newlyAdded) { openSeries($0) }
 
-            if !internationalShowsSection.isEmpty {
-              SeriesRailShelf(title: "International Shows", series: internationalShowsSection) { openSeries($0) }
+            if !sections.international.isEmpty {
+              SeriesRailShelf(title: "International Shows", series: sections.international) { openSeries($0) }
             }
 
             // Genre rails kept below the personalized sections as a bonus.
-            ForEach(genreRails, id: \.genre) { rail in
+            ForEach(sections.genreRails, id: \.genre) { rail in
               SeriesRailShelf(title: rail.genre, series: rail.series) { openSeries($0) }
             }
           }
@@ -132,6 +162,12 @@ public struct SeriesView: View {
         // Backfill episode counts so shows with nothing to play drop out of the
         // rails (resumes across launches; only unchecked shows are processed).
         SeriesEpisodeEnricher.enrichIfNeeded()
+        recomputeSections()
+      }
+      .onChange(of: userRegion.context) { recomputeSections() }
+      .onChange(of: series.count) { scheduleSectionRefresh() }
+      .onReceive(NotificationCenter.default.publisher(for: .smartSectionsDidUpdate)) { _ in
+        scheduleSectionRefresh()
       }
       .alert("Error", isPresented: $showErrorAlert) {
         Button("OK", role: .cancel) {

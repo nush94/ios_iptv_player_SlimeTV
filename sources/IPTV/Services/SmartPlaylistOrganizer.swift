@@ -13,6 +13,11 @@ import Foundation
 import IPTVModels
 import RealmSwift
 
+extension Notification.Name {
+  /// Posted after scores are recomputed so home tabs can refresh cached sections.
+  static let smartSectionsDidUpdate = Notification.Name("smartSectionsDidUpdate")
+}
+
 enum SmartPlaylistOrganizer {
   private static var isRunning = false
   private static let scoringQueue = DispatchQueue(label: "com.iptv.smart.scoring", qos: .utility)
@@ -32,6 +37,10 @@ enum SmartPlaylistOrganizer {
         }
       }
       isRunning = false
+      // Tell the home tabs to refresh their cached sections (debounced there).
+      DispatchQueue.main.async {
+        NotificationCenter.default.post(name: .smartSectionsDidUpdate, object: nil)
+      }
     }
   }
 

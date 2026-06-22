@@ -3,6 +3,15 @@ import IPTVModels
 import RealmSwift
 import SwiftUI
 
+private struct MovieHomeSections {
+  var featured: CachedStream?
+  var trending: [CachedStream] = []
+  var bestReviewed: [CachedStream] = []
+  var newlyAdded: [CachedStream] = []
+  var international: [CachedStream] = []
+  var genreRails: [(genre: String, movies: [CachedStream])] = []
+}
+
 public struct VodView: View {
   @State private var showPlayer: Bool = false
   @State private var selectedStreamURL: URL? = nil
@@ -24,14 +33,14 @@ public struct VodView: View {
   @AppStorage("contentRegion") private var region: String = ""
   @ObservedObject private var userRegion = UserRegionProvider.shared
 
-  // MARK: - Smart sections (auto country, no manual region pick)
+  // MARK: - Smart sections (auto country). Computed into @State on data/region
+  // changes — never per-render — so scrolling and tab switches just read arrays
+  // instead of re-running Realm queries on the main thread.
+
+  @State private var sections = MovieHomeSections()
+  @State private var sectionRefreshTask: Task<Void, Never>?
 
   private var smartCountry: String? { userRegion.context.country }
-  private var featuredSmartMovie: CachedStream? { SmartSections.forYouMovies(limit: 1).first ?? featuredMovie }
-  private var trendingInYourCountry: [CachedStream] { SmartSections.trendingMovies(country: smartCountry) }
-  private var smartBestReviewedMovies: [CachedStream] { SmartSections.bestReviewedNewMovies() }
-  private var smartNewlyAddedMovies: [CachedStream] { SmartSections.newlyAddedMovies() }
-  private var internationalMoviesSection: [CachedStream] { SmartSections.internationalMovies(country: smartCountry) }
 
   // Category ids belonging to the selected region (nil = all regions).
   private var regionCategoryIds: [String]? {
@@ -52,7 +61,7 @@ public struct VodView: View {
   }
 
   // Movie genre rails, populated as background enrichment fills CachedStream.genre.
-  private var movieGenreRails: [(genre: String, movies: [CachedStream])] {
+  private func computeGenreRails() -> [(genre: String, movies: [CachedStream])] {
     var order: [String] = []
     var map: [String: [CachedStream]] = [:]
 
@@ -84,6 +93,30 @@ public struct VodView: View {
       .filter { !$0.isEmpty }
   }
 
+  // MARK: - Section refresh
+
+  private func recomputeSections() {
+    var next = MovieHomeSections()
+    next.featured = SmartSections.forYouMovies(limit: 1).first ?? featuredMovie
+    next.trending = SmartSections.trendingMovies(country: smartCountry)
+    next.bestReviewed = SmartSections.bestReviewedNewMovies()
+    next.newlyAdded = SmartSections.newlyAddedMovies()
+    next.international = SmartSections.internationalMovies(country: smartCountry)
+    next.genreRails = computeGenreRails()
+    sections = next
+  }
+
+  /// Coalesce bursts of background writes (enrichment/scoring/trending) into a
+  /// single refresh rather than re-querying on every change.
+  private func scheduleSectionRefresh() {
+    sectionRefreshTask?.cancel()
+    sectionRefreshTask = Task { @MainActor in
+      try? await Task.sleep(nanoseconds: 1_200_000_000)
+      guard !Task.isCancelled else { return }
+      recomputeSections()
+    }
+  }
+
   public init(kindMedia: KindMedia) {
     self.kindMedia = kindMedia
   }
@@ -101,26 +134,26 @@ public struct VodView: View {
             .padding(.top, 48)
           } else {
             // Featured For You (req 10)
-            FeaturedMovieHeroView(movie: featuredSmartMovie) {
-              if let movie = featuredSmartMovie { openMovie(movie) }
+            FeaturedMovieHeroView(movie: sections.featured) {
+              if let movie = sections.featured { openMovie(movie) }
             }
 
             homeContinueWatchingSection
 
-            if !trendingInYourCountry.isEmpty {
-              MediaRailShelf(title: "Trending In Your Country", streams: trendingInYourCountry) { openMovie($0) }
+            if !sections.trending.isEmpty {
+              MediaRailShelf(title: "Trending In Your Country", streams: sections.trending) { openMovie($0) }
             }
 
-            MediaRailShelf(title: "Best Reviewed New Movies", streams: smartBestReviewedMovies) { openMovie($0) }
+            MediaRailShelf(title: "Best Reviewed New Movies", streams: sections.bestReviewed) { openMovie($0) }
 
-            MediaRailShelf(title: "Newly Added", streams: smartNewlyAddedMovies) { openMovie($0) }
+            MediaRailShelf(title: "Newly Added", streams: sections.newlyAdded) { openMovie($0) }
 
-            if !internationalMoviesSection.isEmpty {
-              MediaRailShelf(title: "International Movies", streams: internationalMoviesSection) { openMovie($0) }
+            if !sections.international.isEmpty {
+              MediaRailShelf(title: "International Movies", streams: sections.international) { openMovie($0) }
             }
 
             // Genre rails kept below the personalized sections as a bonus.
-            ForEach(movieGenreRails, id: \.genre) { rail in
+            ForEach(sections.genreRails, id: \.genre) { rail in
               MediaRailShelf(title: rail.genre, streams: rail.movies) { openMovie($0) }
             }
           }
@@ -135,6 +168,12 @@ public struct VodView: View {
         // Backfill movie genres in the background (resumes across launches);
         // without this the genre rails below stay empty for most of the catalog.
         MovieGenreEnricher.enrichIfNeeded()
+        recomputeSections()
+      }
+      .onChange(of: userRegion.context) { recomputeSections() }
+      .onChange(of: movies.count) { scheduleSectionRefresh() }
+      .onReceive(NotificationCenter.default.publisher(for: .smartSectionsDidUpdate)) { _ in
+        scheduleSectionRefresh()
       }
       .alert("Error", isPresented: $showErrorAlert) {
         Button("OK", role: .cancel) {
