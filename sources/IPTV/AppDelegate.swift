@@ -19,7 +19,7 @@ func configureRealmSchema() {
   // properties like CachedStream.genre, CachedSeries.episodeCount, searchName)
   // need no migration body — just the bump. Existing rows get an empty
   // searchName until the playlist is reloaded; search falls back to `name`.
-  config.schemaVersion = 7
+  config.schemaVersion = 9
   Realm.Configuration.defaultConfiguration = config
 }
 

@@ -87,6 +87,10 @@ enum PlaylistService {
     // own artwork (MovieArtworkView), so anything not pre-warmed fills in on scroll.
     MovieArtworkPreloader.preloadInBackground()
 
+    // Compute personalized "For You" scores in the background now that the
+    // library is in place (req 14).
+    SmartPlaylistOrganizer.recomputeScores()
+
     progress("Finalizing library...")
     await Task.yield()
   }

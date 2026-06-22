@@ -38,6 +38,17 @@ public class CachedSeries: Object, ObjectKeyIdentifiable {
   /// means "not looked up yet" (shown optimistically until confirmed).
   @Persisted public var episodesChecked: Bool
   @Persisted public var episodeCount: Int
+  // Smart organizer metadata + scores (req 3); see CachedStream for details.
+  @Persisted public var cleanTitle: String
+  @Persisted public var country: String
+  @Persisted public var region: String
+  @Persisted public var language: String
+  @Persisted public var voteCount: Int
+  @Persisted public var trendingScore: Double
+  @Persisted public var popularityScore: Double
+  @Persisted(indexed: true) public var forYouScore: Int
+  /// Whether TMDB enrichment has been attempted (resumable matching).
+  @Persisted public var metadataChecked: Bool
 
   public var kindMedia: KindMedia {
     KindMedia(rawValue: section) ?? .vod

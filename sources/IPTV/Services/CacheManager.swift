@@ -81,7 +81,7 @@ class CacheManager: CacheManagerProtocol {
   }
 
   private static func makeCachedStream(_ stream: IPTVModels.Stream, section: String) -> CachedStream {
-    CachedStream(
+    let cached = CachedStream(
       id: stream.id,
       name: stream.name,
       streamType: stream.streamType,
@@ -97,6 +97,30 @@ class CacheManager: CacheManagerProtocol {
       tvArchive: stream.tvArchive,
       archiveDays: stream.archiveDays
     )
+    applySmartMetadata(to: cached, name: stream.name)
+    return cached
+  }
+
+  private static func makeCachedSeries(_ serie: IPTVModels.Series, section: String) -> CachedSeries {
+    let cached = CachedSeries(serie: serie, section: section)
+    applySmartMetadata(to: cached, name: serie.name)
+    return cached
+  }
+
+  /// Fills the title-derived smart fields (req 2). TMDB enrichment and the
+  /// SmartPlaylistOrganizer refine country/language and the scores later.
+  private static func applySmartMetadata(to stream: CachedStream, name: String) {
+    let cleaned = TitleCleaner.clean(name)
+    stream.cleanTitle = cleaned.cleanTitle
+    stream.language = cleaned.language ?? ""
+    stream.country = cleaned.country ?? ""
+  }
+
+  private static func applySmartMetadata(to series: CachedSeries, name: String) {
+    let cleaned = TitleCleaner.clean(name)
+    series.cleanTitle = cleaned.cleanTitle
+    series.language = cleaned.language ?? ""
+    series.country = cleaned.country ?? ""
   }
 
   func resetDatabase() {
@@ -115,8 +139,7 @@ class CacheManager: CacheManagerProtocol {
     do {
       try realm.write {
         for serie in series {
-          let cachedSerie = CachedSeries(serie: serie, section: section)
-          realm.add(cachedSerie, update: .modified)
+          realm.add(Self.makeCachedSeries(serie, section: section), update: .modified)
         }
       }
     } catch {
@@ -134,7 +157,7 @@ class CacheManager: CacheManagerProtocol {
             let realm = try Realm()
             try realm.write {
               for serie in series {
-                realm.add(CachedSeries(serie: serie, section: section), update: .modified)
+                realm.add(Self.makeCachedSeries(serie, section: section), update: .modified)
               }
             }
           } catch {

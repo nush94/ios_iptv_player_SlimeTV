@@ -74,6 +74,17 @@ struct ContentView: View {
       }
       .tint(.red)
       .preferredColorScheme(.dark)
+      .task {
+        // Resolve the user's coarse country/region for personalization (prompts
+        // for When-In-Use only on first launch; otherwise uses the cached/locale
+        // value), then keep scores in sync as it changes.
+        UserRegionProvider.shared.resolve()
+        // Match movies/shows against TMDB in the background (capped, resumable).
+        MetadataEnricher.enrichIfNeeded()
+      }
+      .onReceive(UserRegionProvider.shared.$context.dropFirst()) { _ in
+        SmartPlaylistOrganizer.recomputeScores()
+      }
       .onReceive(NotificationCenter.default.publisher(for: .playlistImportCompleted)) { _ in
         withAnimation(.snappy) {
           selectedSection = .movies

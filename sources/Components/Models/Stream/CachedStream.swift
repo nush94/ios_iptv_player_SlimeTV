@@ -30,6 +30,20 @@ public class CachedStream: Object, ObjectKeyIdentifiable {
   @Persisted public var containerExtension: String
   @Persisted public var tvArchive: Bool
   @Persisted public var archiveDays: Int
+  // Smart organizer metadata + scores (req 3). cleanTitle/country/language are
+  // filled by TitleCleaner at import; voteCount/trending/popularity by TMDB
+  // enrichment; forYouScore by SmartPlaylistOrganizer (indexed for sorted,
+  // LIMIT-ed section queries).
+  @Persisted public var cleanTitle: String
+  @Persisted public var country: String
+  @Persisted public var region: String
+  @Persisted public var language: String
+  @Persisted public var voteCount: Int
+  @Persisted public var trendingScore: Double
+  @Persisted public var popularityScore: Double
+  @Persisted(indexed: true) public var forYouScore: Int
+  /// Whether TMDB enrichment has been attempted (resumable matching).
+  @Persisted public var metadataChecked: Bool
 
   public var kindMedia: KindMedia {
     KindMedia(rawValue: section) ?? .vod
