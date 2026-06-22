@@ -126,7 +126,6 @@ enum MetadataEnricher {
       if let language = meta.language { movie.language = language }
       movie.voteCount = meta.voteCount
       movie.popularityScore = meta.popularity
-      movie.trendingScore = meta.popularity
       movie.tmdb = String(meta.tmdbId)
       if meta.rating > 0 {
         movie.ratingValue = meta.rating
@@ -151,7 +150,6 @@ enum MetadataEnricher {
       if let language = meta.language { show.language = language }
       show.voteCount = meta.voteCount
       show.popularityScore = meta.popularity
-      show.trendingScore = meta.popularity
       show.tmdb = String(meta.tmdbId)
       if meta.rating > 0, (show.rating ?? 0) == 0 { show.rating = meta.rating }
       if let genre = meta.genre, show.genre?.isEmpty != false { show.genre = genre }

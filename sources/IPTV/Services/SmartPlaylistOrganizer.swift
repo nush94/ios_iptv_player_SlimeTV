@@ -45,7 +45,7 @@ enum SmartPlaylistOrganizer {
           region: item.region.isEmpty ? nil : item.region,
           rating: Double(item.rating ?? "") ?? 0,
           voteCount: item.voteCount,
-          isTrendingInUserCountry: isTrendingInUserCountry(country: item.country, popularity: item.trendingScore, context: context),
+          isTrendingInUserCountry: isTrendingInUserCountry(country: item.country, trendingScore: item.trendingScore, context: context),
           hasMetadata: hasMetadata(item),
           context: context
         )
@@ -63,7 +63,7 @@ enum SmartPlaylistOrganizer {
           region: item.region.isEmpty ? nil : item.region,
           rating: item.rating ?? item.rating5Based ?? 0,
           voteCount: item.voteCount,
-          isTrendingInUserCountry: isTrendingInUserCountry(country: item.country, popularity: item.trendingScore, context: context),
+          isTrendingInUserCountry: isTrendingInUserCountry(country: item.country, trendingScore: item.trendingScore, context: context),
           hasMetadata: hasMetadata(item),
           context: context
         )
@@ -71,16 +71,10 @@ enum SmartPlaylistOrganizer {
     }
   }
 
-  /// Proxy for "trending in the user's country" (req 9): popular on TMDB AND in
-  /// the user's country. Phase 3 replaces the popularity proxy with TMDB's real
-  /// region trending feed.
-  private static let trendingPopularityThreshold = 30.0
-
-  private static func isTrendingInUserCountry(country: String, popularity: Double, context: RankingContext) -> Bool {
-    guard popularity >= trendingPopularityThreshold,
-          !country.isEmpty,
-          let userCountry = context.country
-    else {
+  /// "Trending in the user's country" (req 9/16): in TMDB's current trending set
+  /// (`trendingScore > 0`, maintained by TrendingRefresher) AND in the user's country.
+  private static func isTrendingInUserCountry(country: String, trendingScore: Double, context: RankingContext) -> Bool {
+    guard trendingScore > 0, !country.isEmpty, let userCountry = context.country else {
       return false
     }
     return country.caseInsensitiveCompare(userCountry) == .orderedSame

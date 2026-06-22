@@ -81,6 +81,8 @@ struct ContentView: View {
         UserRegionProvider.shared.resolve()
         // Match movies/shows against TMDB in the background (capped, resumable).
         MetadataEnricher.enrichIfNeeded()
+        // Refresh TMDB trending on a schedule (stale-gated, req 16).
+        TrendingRefresher.refreshIfStale()
       }
       .onReceive(UserRegionProvider.shared.$context.dropFirst()) { _ in
         SmartPlaylistOrganizer.recomputeScores()

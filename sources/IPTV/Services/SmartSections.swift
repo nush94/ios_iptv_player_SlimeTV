@@ -16,7 +16,6 @@ import RealmSwift
 /// thread (SwiftUI view bodies), matching the rest of the app's Realm usage.
 enum SmartSections {
   static let limit = 40
-  private static let trendingThreshold = 30.0
 
   private static let vod = KindMedia.vod.rawValue
   private static let series = KindMedia.series.rawValue
@@ -35,8 +34,8 @@ enum SmartSections {
   static func trendingMovies(country: String?, limit: Int = limit) -> [CachedStream] {
     guard let country, !country.isEmpty else { return [] }
     return streams(
-      NSPredicate(format: "section == %@ AND country ==[c] %@ AND popularityScore >= %f", vod, country, trendingThreshold),
-      sortedBy: "popularityScore", limit: limit
+      NSPredicate(format: "section == %@ AND country ==[c] %@ AND trendingScore > 0", vod, country),
+      sortedBy: "trendingScore", limit: limit
     )
   }
 
@@ -65,9 +64,9 @@ enum SmartSections {
     guard let country, !country.isEmpty else { return [] }
     let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
       playable(series),
-      NSPredicate(format: "country ==[c] %@ AND popularityScore >= %f", country, trendingThreshold),
+      NSPredicate(format: "country ==[c] %@ AND trendingScore > 0", country),
     ])
-    return shows(predicate, sortedBy: "popularityScore", limit: limit)
+    return shows(predicate, sortedBy: "trendingScore", limit: limit)
   }
 
   static func bestReviewedShows(limit: Int = limit) -> [CachedSeries] {

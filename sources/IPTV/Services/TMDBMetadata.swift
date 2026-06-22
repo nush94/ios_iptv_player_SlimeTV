@@ -96,6 +96,25 @@ extension TMDBAPIManager {
     return try JSONDecoder().decode(TMDBDetail.self, from: data)
   }
 
+  /// TMDB ids currently trending this week (a few pages). Used to flag which
+  /// matched library items are actually trending (req 16).
+  func trendingIDs(isMovie: Bool, pages: Int = 2) async throws -> [Int] {
+    var ids: [Int] = []
+    for page in 1 ... max(pages, 1) {
+      guard let url = Self.url(
+        path: isMovie ? "trending/movie/week" : "trending/tv/week",
+        query: [
+          URLQueryItem(name: "api_key", value: Self.apiKey),
+          URLQueryItem(name: "page", value: String(page)),
+        ]
+      ) else { continue }
+      let (data, _) = try await URLSession.shared.data(from: url)
+      let response = try JSONDecoder().decode(TMDBSearchResponse.self, from: data)
+      ids.append(contentsOf: response.results.map(\.id))
+    }
+    return ids
+  }
+
   private static func url(path: String, query: [URLQueryItem]) -> URL? {
     var components = URLComponents(string: "https://api.themoviedb.org/3/\(path)")
     components?.queryItems = query
